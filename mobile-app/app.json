@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "CGPotholeMobile",
+    "slug": "cg-pothole-mobile",
+    "version": "1.0.0",
+    "assetBundlePatterns": ["**/*"],
+    "android": {
+      "package": "com.cgpothole.mobile"
+    },
+    "ios": {
+      "bundleIdentifier": "com.cgpothole.mobile"
+    },
+    "plugins": [
+      ["expo-camera", { "cameraPermission": "Allow camera access to report potholes" }],
+      ["expo-sensors", {}],
+      ["expo-location", { "locationAlwaysAndWhenInUsePermissions": "Allow to detect location" }]
+    ]
+  }
+}

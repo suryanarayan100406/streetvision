@@ -1,0 +1,49 @@
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
+import Layout from './components/Layout';
+import Login from './pages/Login';
+import Overview from './pages/Overview';
+import Satellites from './pages/Satellites';
+import Drones from './pages/Drones';
+import CCTV from './pages/CCTV';
+import Pipeline from './pages/Pipeline';
+import Detections from './pages/Detections';
+import Models from './pages/Models';
+import Scheduler from './pages/Scheduler';
+import Settings from './pages/Settings';
+import Logs from './pages/Logs';
+
+function PrivateRoute({ children }) {
+  const token = localStorage.getItem('access_token');
+  return token ? children : <Navigate to="/login" />;
+}
+
+export default function App() {
+  return (
+    <>
+      <Toaster position="top-right" />
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route
+          path="/*"
+          element={
+            <PrivateRoute>
+              <Layout />
+            </PrivateRoute>
+          }
+        >
+          <Route index element={<Overview />} />
+          <Route path="satellites" element={<Satellites />} />
+          <Route path="drones" element={<Drones />} />
+          <Route path="cctv" element={<CCTV />} />
+          <Route path="pipeline" element={<Pipeline />} />
+          <Route path="detections" element={<Detections />} />
+          <Route path="models" element={<Models />} />
+          <Route path="scheduler" element={<Scheduler />} />
+          <Route path="settings" element={<Settings />} />
+          <Route path="logs" element={<Logs />} />
+        </Route>
+      </Routes>
+    </>
+  );
+}

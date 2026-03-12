@@ -1,0 +1,229 @@
+version: "3.9"
+
+x-backend-env: &backend-env
+  env_file: .env
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+x-celery-base: &celery-base
+  <<: *backend-env
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+  volumes:
+    - satellite_data:/data/satellite
+    - drone_data:/data/drone
+    - cctv_data:/data/cctv
+    - complaint_data:/data/complaints
+  restart: unless-stopped
+
+services:
+  # ─── Core Infrastructure ──────────────────────────────────────
+  db:
+    image: postgis/postgis:15-3.4
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ─── Backend API ──────────────────────────────────────────────
+  api:
+    <<: *backend-env
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: >
+      gunicorn app.main:app
+      --bind 0.0.0.0:8000
+      --workers 4
+      --worker-class uvicorn.workers.UvicornWorker
+      --timeout 120
+      --keep-alive 5
+    ports:
+      - "8000:8000"
+    volumes:
+      - satellite_data:/data/satellite
+      - drone_data:/data/drone
+      - cctv_data:/data/cctv
+      - complaint_data:/data/complaints
+    restart: unless-stopped
+
+  # ─── Celery Workers ──────────────────────────────────────────
+  celery_worker_satellite:
+    <<: *celery-base
+    command: celery -A app.tasks.celery_app worker -Q satellite_queue -c 2 -n satellite@%h --loglevel=info
+    deploy:
+      replicas: 1
+
+  celery_worker_inference:
+    <<: *celery-base
+    command: celery -A app.tasks.celery_app worker -Q inference_queue -c 4 -n inference@%h --loglevel=info
+    deploy:
+      replicas: 1
+
+  celery_worker_drone:
+    <<: *celery-base
+    command: celery -A app.tasks.celery_app worker -Q drone_queue -c 2 -n drone@%h --loglevel=info
+
+  celery_worker_filing:
+    <<: *celery-base
+    command: celery -A app.tasks.celery_app worker -Q filing_queue -c 2 -n filing@%h --loglevel=info
+
+  celery_worker_verification:
+    <<: *celery-base
+    command: celery -A app.tasks.celery_app worker -Q verification_queue -c 2 -n verification@%h --loglevel=info
+
+  celery_worker_notification:
+    <<: *celery-base
+    command: celery -A app.tasks.celery_app worker -Q notification_queue -c 1 -n notification@%h --loglevel=info
+
+  celery_worker_admin:
+    <<: *celery-base
+    command: celery -A app.tasks.celery_app worker -Q admin_queue -c 1 -n admin@%h --loglevel=info
+
+  celery_beat:
+    <<: *celery-base
+    command: celery -A app.tasks.celery_app beat --loglevel=info
+
+  # ─── Frontends ────────────────────────────────────────────────
+  admin_frontend:
+    build:
+      context: ./admin-panel
+      dockerfile: Dockerfile
+    restart: unless-stopped
+
+  public_frontend:
+    build:
+      context: ./public-dashboard
+      dockerfile: Dockerfile
+    restart: unless-stopped
+
+  # ─── Nginx Reverse Proxy ─────────────────────────────────────
+  nginx:
+    image: nginx:1.25-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+      - admin_frontend
+      - public_frontend
+    restart: unless-stopped
+
+  # ─── Supporting Services ──────────────────────────────────────
+  nominatim:
+    image: mediagis/nominatim:4.3
+    environment:
+      PBF_URL: https://download.geofabrik.de/asia/india-latest.osm.pbf
+      REPLICATION_URL: https://download.geofabrik.de/asia/india-updates/
+    volumes:
+      - nominatim_data:/var/lib/postgresql/14/main
+    restart: unless-stopped
+
+  odm_worker:
+    image: opendronemap/nodeodm:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - drone_data:/data/drone
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.11.1
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow.db --default-artifact-root /mlflow/artifacts
+    volumes:
+      - mlflow_data:/mlflow
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+
+  # ─── Monitoring Stack ────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:2.9.4
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki_data:/loki
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.4
+    volumes:
+      - /var/log:/var/log:ro
+      - ./monitoring/promtail.yml:/etc/promtail/config.yml:ro
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.1
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  satellite_data:
+  drone_data:
+  cctv_data:
+  complaint_data:
+  nominatim_data:
+  minio_data:
+  mlflow_data:
+  prometheus_data:
+  loki_data:
+  grafana_data:
