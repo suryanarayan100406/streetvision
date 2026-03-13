@@ -28,6 +28,19 @@ export default function Analytics() {
   const { data: funnel } = useFetch('/api/dashboard/complaint-funnel');
   const { data: highways } = useFetch('/api/dashboard/highway-comparison');
 
+  const severityData = severity
+    ? Object.entries(severity).map(([severityName, count]) => ({ severity: severityName, count }))
+    : [];
+
+  const funnelData = funnel
+    ? [
+      { status: 'detected', count: funnel.detected || 0 },
+      { status: 'filed', count: funnel.filed || 0 },
+      { status: 'acknowledged', count: funnel.acknowledged || 0 },
+      { status: 'resolved', count: funnel.resolved || 0 },
+    ]
+    : [];
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold">Analytics Dashboard</h2>
@@ -43,8 +56,7 @@ export default function Analytics() {
               <YAxis />
               <Tooltip />
               <Legend />
-              <Line type="monotone" dataKey="new_potholes" stroke="#3b82f6" name="New Detections" />
-              <Line type="monotone" dataKey="resolved" stroke="#22c55e" name="Resolved" />
+              <Line type="monotone" dataKey="count" stroke="#3b82f6" name="Detections" />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -52,13 +64,13 @@ export default function Analytics() {
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Severity Distribution */}
-        {severity && (
+        {severityData.length > 0 && (
           <div className="bg-white rounded-xl border p-6">
             <h3 className="font-bold mb-4">Severity Breakdown</h3>
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
-                <Pie data={severity} dataKey="count" nameKey="severity" label outerRadius={80}>
-                  {severity.map((entry, idx) => (
+                <Pie data={severityData} dataKey="count" nameKey="severity" label outerRadius={80}>
+                  {severityData.map((entry, idx) => (
                     <Cell key={idx} fill={SEVERITY_COLORS[entry.severity] || '#999'} />
                   ))}
                 </Pie>
@@ -75,10 +87,10 @@ export default function Analytics() {
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={highways}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="highway_name" angle={-45} textAnchor="end" height={80} />
+                <XAxis dataKey="nh_number" angle={-45} textAnchor="end" height={80} />
                 <YAxis />
                 <Tooltip />
-                <Bar dataKey="count" fill="#8b5cf6" />
+                <Bar dataKey="total" fill="#8b5cf6" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -86,14 +98,14 @@ export default function Analytics() {
       </div>
 
       {/* Complaint Funnel */}
-      {funnel && (
+      {funnelData.length > 0 && (
         <div className="bg-white rounded-xl border p-6">
           <h3 className="font-bold mb-4">Complaint Status Funnel</h3>
           <div className="space-y-2">
-            {funnel.map((stage, idx) => (
+            {funnelData.map((stage, idx) => (
               <div key={stage.status}>
                 <p className="text-sm font-medium capitalize mb-1">{stage.status.replace('_', ' ')}</p>
-                <div className="bg-gray-200 rounded-full h-8 flex items-center" style={{ width: `${(stage.count / funnel[0].count) * 100}%` }}>
+                <div className="bg-gray-200 rounded-full h-8 flex items-center" style={{ width: `${funnelData[0]?.count ? (stage.count / funnelData[0].count) * 100 : 0}%` }}>
                   <span className="text-xs font-bold text-white px-3">{stage.count}</span>
                 </div>
               </div>

@@ -38,8 +38,17 @@ async def _get_model(model_path: str | Path | None = None):
         from ultralytics import YOLO
 
         path = Path(model_path) if model_path else DEFAULT_MODEL_PATH
-        logger.info("loading_yolo_model", path=str(path))
-        _model = YOLO(str(path))
+        if path.exists():
+            logger.info("loading_yolo_model", path=str(path))
+            _model = YOLO(str(path))
+        else:
+            fallback_model = "yolov8n-seg.pt"
+            logger.warning(
+                "yolo_model_not_found_using_fallback",
+                missing_path=str(path),
+                fallback=fallback_model,
+            )
+            _model = YOLO(fallback_model)
         return _model
 
 

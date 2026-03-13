@@ -1,7 +1,7 @@
 # ─── Web Framework ──────────────────────────────────────────
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
-gunicorn==22.0.0
+gunicorn==21.2.0
 python-multipart==0.0.9
 
 # ─── Database ───────────────────────────────────────────────
@@ -35,10 +35,6 @@ geojson==3.1.0
 # ─── Satellite Download ────────────────────────────────────
 sentinelsat==1.2.1
 eodag==2.12.1
-
-# ─── SAR Processing ────────────────────────────────────────
-snapista==0.5.0
-pysarpro==0.2.0
 
 # ─── ML / CV ───────────────────────────────────────────────
 ultralytics==8.1.47

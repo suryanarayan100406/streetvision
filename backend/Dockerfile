@@ -4,6 +4,7 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdal-dev gdal-bin libgeos-dev libproj-dev \
+    libgl1 libglib2.0-0 \
     libpq-dev gcc g++ \
     && rm -rf /var/lib/apt/lists/*
 

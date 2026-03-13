@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import useFetch from '../hooks/useFetch';
 
 const STATUSES = ['new', 'investigating', 'in_repair', 'resolved', 'failed'];
@@ -11,10 +10,17 @@ const STATUS_COLORS = {
 };
 
 export default function Kanban() {
-  const { data: complaints } = useFetch('/api/dashboard/complaint-funnel');
-  const [potholes, setPotholes] = useState({});
+  const { data: funnel } = useFetch('/api/dashboard/complaint-funnel');
 
-  if (!complaints) return <div className="text-center py-8">Loading...</div>;
+  if (!funnel) return <div className="text-center py-8">Loading...</div>;
+
+  const complaintStages = [
+    { status: 'new', count: funnel.detected || 0 },
+    { status: 'investigating', count: funnel.filed || 0 },
+    { status: 'in_repair', count: funnel.acknowledged || 0 },
+    { status: 'resolved', count: funnel.resolved || 0 },
+    { status: 'failed', count: Math.max((funnel.detected || 0) - (funnel.resolved || 0), 0) },
+  ];
 
   return (
     <div>
@@ -24,17 +30,9 @@ export default function Kanban() {
           <div key={status} className="bg-gray-50 rounded-xl p-4 min-h-96">
             <h3 className="font-bold capitalize mb-3">{status.replace('_', ' ')}</h3>
             <div className="space-y-3">
-              {complaints
-                .filter((c) => c.status === status)
-                .map((complaint) => (
-                  <div key={complaint.id} className={`${STATUS_COLORS[status]} p-3 rounded-lg text-sm`}>
-                    <p className="font-medium">#{complaint.portal_ref}</p>
-                    <p className="text-xs opacity-75 mt-1">L{complaint.escalation_level}</p>
-                  </div>
-                ))}
-              {!complaints.some((c) => c.status === status) && (
-                <p className="text-gray-400 text-xs text-center py-8">No items</p>
-              )}
+              <div className={`${STATUS_COLORS[status]} p-3 rounded-lg text-sm`}>
+                <p className="font-medium">{complaintStages.find((s) => s.status === status)?.count || 0} items</p>
+              </div>
             </div>
           </div>
         ))}

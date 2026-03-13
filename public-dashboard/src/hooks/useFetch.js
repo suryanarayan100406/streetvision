@@ -7,14 +7,24 @@ export default function useFetch(url) {
 
   useEffect(() => {
     const controller = new AbortController();
-    
+
+    setLoading(true);
+    setError(null);
+
     fetch(url, { signal: controller.signal })
-      .then(r => r.json())
+      .then(async (r) => {
+        if (!r.ok) {
+          const message = await r.text();
+          throw new Error(message || `Request failed: ${r.status}`);
+        }
+        return r.json();
+      })
       .then(d => {
         setData(d);
         setLoading(false);
       })
       .catch(e => {
+        if (e.name === 'AbortError') return;
         setError(e);
         setLoading(false);
       });

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict
 
 
 class AdminLogin(BaseModel):
-    email: EmailStr
+    username: str
     password: str
 
 
@@ -19,9 +19,8 @@ class AdminTokenPair(BaseModel):
 
 
 class AdminUserCreate(BaseModel):
-    email: EmailStr
-    name: str
-    role: str = "ADMIN"
+    username: str
+    role: str = "viewer"
     password: str
 
 
@@ -29,11 +28,10 @@ class AdminUserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    email: str
-    name: str | None = None
+    username: str
     role: str
     last_login: datetime | None = None
-    status: str
+    is_active: bool
     created_at: datetime
 
 
@@ -41,30 +39,26 @@ class AdminAuditLogOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    administrator_id: int | None = None
-    action_type: str | None = None
-    resource_type: str | None = None
-    resource_id: str | None = None
-    change_summary: str | None = None
+    admin_id: int | None = None
+    action: str
+    entity_type: str | None = None
+    entity_id: int | None = None
     before_state: dict | None = None
     after_state: dict | None = None
-    performed_at: datetime
-    ip_address: str | None = None
-
-
-class SystemHealthItem(BaseModel):
-    component: str
-    status: str  # HEALTHY | DEGRADED | ERROR | INACTIVE
-    last_event: datetime | None = None
-    last_error: str | None = None
+    created_at: datetime
 
 
 class SystemOverview(BaseModel):
     total_potholes: int
-    open_complaints: dict[str, int]  # escalation_level -> count
-    complaints_today: int
-    repairs_this_month: int
-    health: list[SystemHealthItem]
+    active_potholes: int
+    critical_potholes: int
+    new_last_24h: int
+    total_complaints: int
+    open_complaints: int
+    critically_overdue: int
+    active_satellite_jobs: int
+    active_drone_missions: int
+    active_cctv_cameras: int
 
 
 class SchedulerTaskOut(BaseModel):
@@ -89,7 +83,7 @@ class SettingOut(BaseModel):
     id: int
     key: str
     value: str | None = None
-    value_type: str | None = None
+    category: str | None = None
     description: str | None = None
 
 

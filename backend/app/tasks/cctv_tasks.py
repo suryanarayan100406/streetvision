@@ -15,82 +15,177 @@ logger = structlog.get_logger(__name__)
 
 
 @app.task(name="app.tasks.cctv_tasks.run_inference_on_tile", bind=True)
-def run_inference_on_tile(self, tile_id: str, source: str, highway: str):
+def run_inference_on_tile(
+    self,
+    tile_id: str,
+    source: str,
+    highway: str,
+    satellite_job_id: int | None = None,
+    source_context: dict | None = None,
+):
     """Run YOLOv8 + MiDaS inference on a single tile from any source."""
 
     async def _run():
-        from app.ml.detector import PotholeDetector
-        from app.ml.depth_estimator import DepthEstimator
+        import cv2
+        import httpx
+        import numpy as np
+
+        from app.ml.detector import detect
+        from app.ml.depth_estimator import estimate_depth
         from app.models.pothole import Pothole
+        from app.models.satellite import SatelliteJob
         from app.models.source_report import SourceReport
-        from app.services.confidence_engine import recompute_confidence, determine_action
-        from app.services.risk_engine import compute_risk_score
+        from app.services.minio_client import download_bytes
+        from app.services.confidence_engine import determine_action
         from app.services.geocoder import reverse_geocode
 
-        detector = PotholeDetector()
-        depth_estimator = DepthEstimator()
+        async def _update_job_progress(detections_increment: int = 0, error: str | None = None) -> None:
+            if satellite_job_id is None:
+                return
+            async with async_session_factory() as job_db:
+                job = await job_db.get(SatelliteJob, satellite_job_id)
+                if job is None:
+                    return
+                job.tiles_processed = int(job.tiles_processed or 0) + 1
+                job.detections_count = int(job.detections_count or 0) + int(detections_increment or 0)
+                if error:
+                    job.error_message = error
+                if int(job.tiles_processed or 0) >= int(job.tiles_total or 0):
+                    job.status = "COMPLETED" if not job.error_message else "COMPLETED"
+                    job.completed_at = datetime.now(timezone.utc)
+                await job_db.commit()
 
-        # In production, tile would be loaded from MinIO
-        # Here we process whatever source provides
-        detections = detector.detect_from_source(tile_id, source)
+        async def _oam_context_from_uuid(uuid_value: str) -> dict:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    "https://api.openaerialmap.org/meta",
+                    params={"uuid": uuid_value, "limit": 1},
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                result = (response.json().get("results") or [None])[0]
+
+            if not result:
+                return {}
+
+            bbox = result.get("bbox") or (result.get("geojson") or {}).get("bbox")
+            center_lat = 0.0
+            center_lon = 0.0
+            if isinstance(bbox, list) and len(bbox) == 4:
+                center_lon = float((bbox[0] + bbox[2]) / 2.0)
+                center_lat = float((bbox[1] + bbox[3]) / 2.0)
+
+            gsd = result.get("gsd") or (result.get("properties") or {}).get("resolution_in_meters")
+            return {
+                "lat": center_lat,
+                "lon": center_lon,
+                "bbox": bbox,
+                "gsd_m_per_px": float(gsd) if gsd is not None else None,
+            }
+
+        async def _load_image_and_context() -> tuple[np.ndarray | None, dict]:
+            context: dict = {
+                "lat": 0.0,
+                "lon": 0.0,
+                "bbox": None,
+                "gsd_m_per_px": None,
+            }
+            if source_context:
+                context.update(source_context)
+
+            if source.upper().startswith("OAM") and tile_id.startswith("http"):
+                context.update(await _oam_context_from_uuid(tile_id))
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(tile_id, timeout=90.0, follow_redirects=True)
+                    resp.raise_for_status()
+                    raw = resp.content
+            else:
+                raw = download_bytes(tile_id)
+
+            image = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+            return image, context
+
+        try:
+            image, context = await _load_image_and_context()
+        except Exception as exc:
+            await logger.aexception("inference_image_load_failed", tile_id=tile_id, source=source, error=str(exc))
+            await _update_job_progress(error="image_load_failed")
+            return {"source": source, "tile_id": tile_id, "detections": 0, "error": "image_load_failed"}
+
+        if image is None:
+            await logger.aerror("inference_image_decode_failed", tile_id=tile_id, source=source)
+            await _update_job_progress(error="image_decode_failed")
+            return {"source": source, "tile_id": tile_id, "detections": 0, "error": "image_decode_failed"}
+
+        detections = await detect(image)
 
         async with async_session_factory() as db:
             created = 0
             for det in detections:
-                lat, lon = det["latitude"], det["longitude"]
+                lat = float(context.get("lat") or 0.0)
+                lon = float(context.get("lon") or 0.0)
 
-                # Geocode
-                try:
-                    geo = await reverse_geocode(lat, lon)
-                except Exception:
+                if abs(lat) > 0.000001 or abs(lon) > 0.000001:
+                    try:
+                        geo = await reverse_geocode(lat, lon)
+                    except Exception:
+                        geo = {"road_name": "", "district": "", "nearest_landmark": ""}
+                else:
                     geo = {"road_name": "", "district": "", "nearest_landmark": ""}
 
-                # Depth estimation
-                depth_cm = depth_estimator.estimate_depth(det.get("crop"))
-                area_sqm = det.get("area_sqm", 0)
+                depth_result = await estimate_depth(image, det.get("mask"))
+                depth_cm = float(depth_result.get("estimated_depth_cm") or 0.0)
 
-                # Classification
+                gsd = float(context.get("gsd_m_per_px") or 0.05)
+                area_px = int(det.get("area_px") or 0)
+                area_sqm = float(area_px * (gsd**2)) if area_px > 0 else 0.0
+
                 severity = classify_severity(area_sqm, depth_cm)
 
+                base_conf = float(det.get("confidence", 0.6) or 0.6)
+                severity_risk = {"Low": 20.0, "Medium": 45.0, "High": 70.0, "Critical": 90.0}
+                risk_score = severity_risk.get(severity, 30.0)
+
                 pothole = Pothole(
+                    latitude=float(lat),
+                    longitude=float(lon),
                     geom=f"SRID=4326;POINT({lon} {lat})",
                     severity=severity,
-                    area_sqm=Decimal(str(round(area_sqm, 4))),
-                    depth_cm=Decimal(str(round(depth_cm, 2))),
-                    confidence_score=Decimal(str(round(det["confidence"], 3))),
-                    source_primary=source,
-                    satellite_source=source if "SAT" in source or source in (
-                        "SENTINEL-2", "SENTINEL-1", "CARTOSAT-3", "CARTOSAT-2S",
-                        "LANDSAT-9", "RISAT-2B", "EOS-04", "ALOS-2", "MODIS"
-                    ) else None,
-                    image_path=det.get("image_path"),
+                    confidence_score=round(base_conf, 3),
+                    risk_score=round(risk_score, 2),
+                    status="Detected",
+                    nh_number=highway or None,
+                    district=geo.get("district") or None,
+                    address=geo.get("road_name") or geo.get("nearest_landmark") or None,
+                    estimated_area_m2=round(float(area_sqm), 4) if area_sqm is not None else None,
+                    estimated_depth_cm=round(float(depth_cm), 2) if depth_cm is not None else None,
+                    image_path=tile_id,
                     detected_at=datetime.now(timezone.utc),
-                    road_name=geo.get("road_name"),
-                    km_marker=det.get("km_marker"),
-                    district=geo.get("district"),
-                    nearest_landmark=geo.get("nearest_landmark"),
                 )
                 db.add(pothole)
                 await db.flush()
 
-                # Add source report
                 report = SourceReport(
                     pothole_id=pothole.id,
-                    source=source,
-                    report_type="DETECTION",
-                    gps=f"SRID=4326;POINT({lon} {lat})",
-                    timestamp=datetime.now(timezone.utc),
-                    image_path=det.get("image_path"),
-                    confidence_boost=Decimal(str(det["confidence"])),
+                    source_type=source,
+                    latitude=float(lat),
+                    longitude=float(lon),
+                    raw_payload={
+                        "tile_id": tile_id,
+                        "highway": highway,
+                        "bbox": context.get("bbox"),
+                        "class_name": det.get("class_name"),
+                        "bbox_px": det.get("bbox"),
+                    },
+                    image_url=tile_id,
+                    captured_at=datetime.now(timezone.utc),
+                    confidence_boost=round(base_conf, 3),
+                    processed=True,
                 )
                 db.add(report)
                 await db.flush()
 
-                # Recompute confidence and risk
-                conf = await recompute_confidence(db, pothole.id)
-                await compute_risk_score(db, pothole.id)
-
-                action = determine_action(conf)
+                action = determine_action(Decimal(str(base_conf)))
                 if action == "AUTO_FILE_COMPLAINT":
                     from app.tasks.filing_tasks import file_complaint
                     file_complaint.delay(pothole.id)
@@ -98,6 +193,7 @@ def run_inference_on_tile(self, tile_id: str, source: str, highway: str):
                 created += 1
 
             await db.commit()
+            await _update_job_progress(detections_increment=created)
             return {"source": source, "tile_id": tile_id, "detections": created}
 
     return asyncio.get_event_loop().run_until_complete(_run())

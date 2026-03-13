@@ -3,7 +3,7 @@ import useFetch from '../hooks/useFetch';
 
 export default function PotholeDetail() {
   const { id } = useParams();
-  const { data: pothole } = useFetch(`/api/public/pothole/${id}`);
+  const { data: pothole } = useFetch(`/api/public/potholes/${id}`);
 
   if (!pothole) return <div className="text-center py-8">Loading...</div>;
 
@@ -12,32 +12,32 @@ export default function PotholeDetail() {
       <div className="lg:col-span-2">
         <div className="bg-white rounded-xl border p-6">
           <h2 className="text-2xl font-bold mb-2">Pothole #{pothole.id}</h2>
-          <p className="text-gray-600 mb-4">{pothole.location_name}</p>
+          <p className="text-gray-600 mb-4">{pothole.district || pothole.nh_number || 'Unknown location'}</p>
 
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div className="p-4 bg-gray-50 rounded-lg">
               <p className="text-xs text-gray-500">Severity</p>
-              <p className={`text-lg font-bold severity-${pothole.severity.toLowerCase()}`}>{pothole.severity}</p>
+              <p className="text-lg font-bold">{pothole.severity || 'N/A'}</p>
             </div>
             <div className="p-4 bg-gray-50 rounded-lg">
               <p className="text-xs text-gray-500">Risk Score</p>
-              <p className="text-lg font-bold">{pothole.risk_score.toFixed(1)}/100</p>
+              <p className="text-lg font-bold">{Number(pothole.risk_score || 0).toFixed(1)}/100</p>
             </div>
             <div className="p-4 bg-gray-50 rounded-lg">
               <p className="text-xs text-gray-500">Diameter (cm)</p>
-              <p className="text-lg font-bold">{pothole.diameter_cm}</p>
+              <p className="text-lg font-bold">{pothole.estimated_diameter_m ? `${pothole.estimated_diameter_m} m` : 'N/A'}</p>
             </div>
             <div className="p-4 bg-gray-50 rounded-lg">
               <p className="text-xs text-gray-500">Depth (cm)</p>
-              <p className="text-lg font-bold">{pothole.depth_cm.toFixed(1)}</p>
+              <p className="text-lg font-bold">{pothole.estimated_depth_cm ? Number(pothole.estimated_depth_cm).toFixed(1) : 'N/A'}</p>
             </div>
           </div>
 
           <div className="space-y-2">
             <p><strong>Status:</strong> {pothole.status}</p>
             <p><strong>Detected:</strong> {new Date(pothole.detected_at).toLocaleDateString()}</p>
-            <p><strong>Road:</strong> {pothole.road_id}</p>
-            <p><strong>Confidence:</strong> {(pothole.confidence_score * 100).toFixed(1)}%</p>
+            <p><strong>Highway:</strong> {pothole.nh_number || 'N/A'}</p>
+            <p><strong>Confidence:</strong> {(Number(pothole.confidence_score || 0) * 100).toFixed(1)}%</p>
           </div>
         </div>
       </div>
@@ -50,7 +50,7 @@ export default function PotholeDetail() {
               <li key={src.id} className="p-2 bg-gray-50 rounded">
                 📷 {src.source_type}
                 <br />
-                <span className="text-gray-500">+{(src.confidence_boost * 100).toFixed(0)}% boost</span>
+                <span className="text-gray-500">+{(Number(src.confidence_boost || 0) * 100).toFixed(0)}% boost</span>
               </li>
             ))}
           </ul>
@@ -61,7 +61,7 @@ export default function PotholeDetail() {
           {pothole.complaints?.[0] ? (
             <div className="text-sm space-y-1">
               <p><strong>ID:</strong> {pothole.complaints[0].portal_ref}</p>
-              <p><strong>Status:</strong> {pothole.complaints[0].status}</p>
+              <p><strong>Status:</strong> {pothole.complaints[0].portal_status || 'N/A'}</p>
               <p><strong>Level:</strong> {pothole.complaints[0].escalation_level}</p>
             </div>
           ) : (

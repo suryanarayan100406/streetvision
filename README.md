@@ -340,6 +340,19 @@ docker-compose up -d
 # + All other services
 ```
 
+### **Custom YOLO Weights (Recommended)**
+
+The inference worker now reads custom weights from `/models/yolov8x-seg-pothole.pt`.
+
+1. Put your trained model file at `backend/models/yolov8x-seg-pothole.pt`
+2. Restart inference worker:
+
+```bash
+docker compose up -d celery_worker_inference
+```
+
+If the file is missing, the system automatically falls back to `yolov8n-seg.pt`.
+
 ---
 
 ## 📡 API Reference

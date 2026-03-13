@@ -1,7 +1,7 @@
 import useFetch from '../hooks/useFetch';
 
 export default function Leaderboard() {
-  const { data: leaderboard } = useFetch('/api/public/leaderboard');
+  const { data: leaderboard } = useFetch('/api/dashboard/leaderboard');
 
   if (!leaderboard) return <div className="text-center py-8">Loading...</div>;
 
@@ -12,7 +12,7 @@ export default function Leaderboard() {
       <div className="grid lg:grid-cols-3 gap-4">
         {leaderboard.slice(0, 3).map((user, idx) => (
           <div
-            key={user.id}
+            key={user.user_id || idx}
             className={`p-6 rounded-xl text-white text-center ${
               idx === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-500' :
               idx === 1 ? 'bg-gradient-to-br from-gray-400 to-gray-500' :
@@ -20,7 +20,7 @@ export default function Leaderboard() {
             }`}
           >
             <p className="text-4xl mb-2">{'🥇🥈🥉'[idx]}</p>
-            <p className="font-bold text-lg">{user.username}</p>
+            <p className="font-bold text-lg">{user.display_name || user.user_id}</p>
             <p className="text-2xl font-bold mt-2">{user.total_points} pts</p>
           </div>
         ))}
@@ -37,11 +37,11 @@ export default function Leaderboard() {
             </tr>
           </thead>
           <tbody className="divide-y">
-            {leaderboard.map((user, idx) => (
-              <tr key={user.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-bold">{idx + 1}</td>
-                <td className="px-4 py-3">{user.username}</td>
-                <td className="px-4 py-3">{user.report_count}</td>
+            {leaderboard.map((user) => (
+              <tr key={user.user_id} className="hover:bg-gray-50">
+                <td className="px-4 py-3 font-bold">{user.rank}</td>
+                <td className="px-4 py-3">{user.display_name || user.user_id}</td>
+                <td className="px-4 py-3">{user.reports_count}</td>
                 <td className="px-4 py-3 font-semibold">{user.total_points}</td>
               </tr>
             ))}

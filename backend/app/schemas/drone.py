@@ -10,13 +10,11 @@ from pydantic import BaseModel, ConfigDict
 
 class DroneMissionCreate(BaseModel):
     mission_name: str
-    source: str
     operator: str | None = None
-    mission_date: date | None = None
-    highway: str | None = None
-    km_start: Decimal | None = None
-    km_end: Decimal | None = None
-    resolution_cm_px: Decimal | None = None
+    flight_date: date | None = None
+    area_bbox: dict | None = None
+    image_count: int | None = None
+    gsd_cm: float | None = None
 
 
 class DroneMissionOut(BaseModel):
@@ -24,27 +22,20 @@ class DroneMissionOut(BaseModel):
 
     id: int
     mission_name: str | None = None
-    source: str | None = None
     operator: str | None = None
-    mission_date: date | None = None
-    highway: str | None = None
-    km_start: Decimal | None = None
-    km_end: Decimal | None = None
-    area_covered_sqkm: Decimal | None = None
+    flight_date: date | None = None
+    area_bbox: dict | None = None
     image_count: int | None = None
-    resolution_cm_px: Decimal | None = None
+    gsd_cm: float | None = None
     processing_status: str
-    detection_count: int
+    odm_task_id: str | None = None
     orthophoto_path: str | None = None
-    submitted_at: datetime | None = None
+    dsm_path: str | None = None
+    created_at: datetime
     completed_at: datetime | None = None
 
 
 class LiveDroneFeedCreate(BaseModel):
     rtsp_url: str
-    drone_type: str | None = None
     operator: str | None = None
-    highway: str | None = None
-    km_start: Decimal | None = None
-    km_end: Decimal | None = None
     expected_altitude_m: float | None = None

@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     # ─── NASA Earthdata / USGS ─────────────────────────────────
     NASA_EARTHDATA_USER: str = ""
     NASA_EARTHDATA_PASS: str = ""
+    NASA_EARTHDATA_TOKEN: str = ""
     USGS_USERNAME: str = ""
     USGS_PASSWORD: str = ""
     USGS_M2M_API_KEY: str = ""

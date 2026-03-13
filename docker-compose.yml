@@ -14,6 +14,7 @@ x-celery-base: &celery-base
     context: ./backend
     dockerfile: Dockerfile
   volumes:
+    - ./backend/models:/models:ro
     - satellite_data:/data/satellite
     - drone_data:/data/drone
     - cctv_data:/data/cctv
@@ -32,6 +33,11 @@ services:
       - pgdata:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    # Expose 'postgres' as network alias so DATABASE_URL can use @postgres:5432
+    networks:
+      default:
+        aliases:
+          - postgres
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -69,6 +75,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
+      - ./backend/models:/models:ro
       - satellite_data:/data/satellite
       - drone_data:/data/drone
       - cctv_data:/data/cctv
@@ -140,19 +147,20 @@ services:
     restart: unless-stopped
 
   # ─── Supporting Services ──────────────────────────────────────
-  nominatim:
-    image: mediagis/nominatim:4.3
-    environment:
-      PBF_URL: https://download.geofabrik.de/asia/india-latest.osm.pbf
-      REPLICATION_URL: https://download.geofabrik.de/asia/india-updates/
-    volumes:
-      - nominatim_data:/var/lib/postgresql/14/main
-    restart: unless-stopped
+  # nominatim: DISABLED for initial boot (downloads 700MB India OSM data)
+  # Uncomment and run separately: docker compose up -d nominatim
+  # nominatim:
+  #   image: mediagis/nominatim:4.3
+  #   environment:
+  #     PBF_URL: https://download.geofabrik.de/asia/india-latest.osm.pbf
+  #   volumes:
+  #     - nominatim_data:/var/lib/postgresql/14/main
+  #   restart: unless-stopped
 
   odm_worker:
     image: opendronemap/nodeodm:latest
     ports:
-      - "3000:3000"
+      - "3500:3000"
     volumes:
       - drone_data:/data/drone
     restart: unless-stopped
@@ -209,7 +217,7 @@ services:
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
     ports:
-      - "3001:3000"
+      - "4000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
     restart: unless-stopped

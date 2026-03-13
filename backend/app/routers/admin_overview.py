@@ -115,8 +115,9 @@ async def system_health():
 
     # MinIO
     try:
-        from app.services.minio_client import minio
-        minio.list_buckets()
+        from app.services.minio_client import get_minio_client
+        client = get_minio_client()
+        client.list_buckets()
         checks.append({"name": "MinIO", "status": "healthy"})
     except Exception as e:
         checks.append({"name": "MinIO", "status": "unhealthy", "error": str(e)})
@@ -138,7 +139,7 @@ async def system_health():
     # NodeODM
     try:
         async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.get(f"{settings.ODM_API_URL}/info")
+            resp = await client.get(f"{settings.NODEODM_URL}/info")
             if resp.status_code == 200:
                 checks.append({"name": "NodeODM", "status": "healthy"})
             else:

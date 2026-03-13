@@ -2,7 +2,12 @@ import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import useFetch from '../hooks/useFetch';
 
-mapboxgl.accessToken = 'pk.eyJ1IjoiY2doYXNzYW0iLCJhIjoiY20zMDA0aHd5MDAwZDJsbXh4a3lzMDAxdyJ9.PLACEHOLDER';
+const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN || '';
+const hasMapboxToken = mapboxToken && !mapboxToken.includes('PLACEHOLDER');
+
+if (hasMapboxToken) {
+  mapboxgl.accessToken = mapboxToken;
+}
 
 export default function Map() {
   const mapContainer = useRef(null);
@@ -10,7 +15,7 @@ export default function Map() {
   const { data: geojson } = useFetch('/api/public/geojson');
 
   useEffect(() => {
-    if (!mapContainer.current) return;
+    if (!mapContainer.current || !hasMapboxToken) return;
 
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
@@ -23,7 +28,7 @@ export default function Map() {
   }, []);
 
   useEffect(() => {
-    if (!map.current || !geojson) return;
+    if (!map.current || !geojson || !hasMapboxToken) return;
 
     if (map.current.getSource('potholes')) {
       map.current.getSource('potholes').setData(geojson);
@@ -51,6 +56,7 @@ export default function Map() {
     }
 
     map.current.on('click', 'potholes-layer', (e) => {
+      if (!e.features?.length) return;
       const prop = e.features[0].properties;
       new mapboxgl.Popup()
         .setLngLat(e.lngLat)
@@ -60,6 +66,20 @@ export default function Map() {
         .addTo(map.current);
     });
   }, [geojson]);
+
+  if (!hasMapboxToken) {
+    return (
+      <div className="bg-white rounded-xl border p-6">
+        <h3 className="text-lg font-semibold mb-2">Map unavailable</h3>
+        <p className="text-sm text-gray-600">
+          Add a valid <code>VITE_MAPBOX_TOKEN</code> in environment to enable map tiles.
+        </p>
+        <p className="text-sm text-gray-500 mt-2">
+          API is still live and detections load via <code>/api/public/geojson</code>.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="h-[calc(100vh-8rem)] rounded-xl overflow-hidden shadow-lg border border-gray-200">

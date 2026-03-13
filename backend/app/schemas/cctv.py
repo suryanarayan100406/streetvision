@@ -3,46 +3,44 @@
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
 
 
 class CCTVNodeCreate(BaseModel):
-    camera_id: str
-    latitude: float
-    longitude: float
+    name: str
     rtsp_url: str
-    highway: str | None = None
-    km_marker: Decimal | None = None
-    atms_zone: str | None = None
-    camera_angle_degrees: Decimal | None = None
-    mounting_height_m: Decimal | None = None
-    description: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    nh_number: str | None = None
+    chainage_km: float | None = None
+    perspective_matrix: dict | None = None
 
 
 class CCTVNodeOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    camera_id: str
-    highway: str | None = None
-    km_marker: Decimal | None = None
-    atms_zone: str | None = None
-    last_active: datetime | None = None
-    status: str
-    mounting_height_m: Decimal | None = None
-    camera_angle_degrees: Decimal | None = None
+    name: str
+    rtsp_url: str
+    latitude: float | None = None
+    longitude: float | None = None
+    nh_number: str | None = None
+    chainage_km: float | None = None
+    perspective_matrix: dict | None = None
+    is_active: bool
+    last_frame_at: datetime | None = None
 
 
 class CCTVNodeUpdate(BaseModel):
+    name: str | None = None
     rtsp_url: str | None = None
-    highway: str | None = None
-    km_marker: Decimal | None = None
-    atms_zone: str | None = None
-    status: str | None = None
-    camera_angle_degrees: Decimal | None = None
-    mounting_height_m: Decimal | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    nh_number: str | None = None
+    chainage_km: float | None = None
+    perspective_matrix: dict | None = None
+    is_active: bool | None = None
 
 
 class CCTVTestResult(BaseModel):
@@ -53,6 +51,5 @@ class CCTVTestResult(BaseModel):
 
 
 class HomographyCalibration(BaseModel):
-    image_points: list[list[float]]  # 4 points [[x,y], ...]
-    real_width_m: float = 3.5
-    real_length_m: float = 5.0
+    src_points: list[list[float]]
+    dst_points: list[list[float]]

@@ -13,6 +13,12 @@ from app.config import settings
 _client: Minio | None = None
 
 
+async def ensure_buckets() -> None:
+    client = get_minio_client()
+    if not client.bucket_exists(settings.MINIO_BUCKET):
+        client.make_bucket(settings.MINIO_BUCKET)
+
+
 def get_minio_client() -> Minio:
     global _client
     if _client is None:

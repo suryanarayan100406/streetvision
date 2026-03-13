@@ -29,13 +29,51 @@ def ingest_openaerialmap(self):
                     # Queue inference for each qualifying image
                     from app.tasks.cctv_tasks import run_inference_on_tile
                     run_inference_on_tile.delay(
-                        img.get("uuid", ""), "OAM_DRONE", highway
+                        img.get("product_id") or img.get("uuid", ""), "OAM_DRONE", highway
                     )
                     total_images += 1
             except Exception as exc:
                 await logger.aexception("oam_ingestion_error", highway=highway, error=str(exc))
 
         return {"source": "OAM", "images_queued": total_images}
+
+    return asyncio.get_event_loop().run_until_complete(_ingest())
+
+
+@app.task(name="app.tasks.drone_tasks.ingest_openaerialmap_bbox", bind=True)
+def ingest_openaerialmap_bbox(
+    self,
+    bbox: dict,
+    label: str = "custom",
+    min_resolution: float = 0.8,
+    limit: int = 50,
+    date_from: str | None = None,
+    date_to: str | None = None,
+):
+    """On-demand OAM ingestion for a custom bbox/date range."""
+
+    async def _ingest():
+        from app.services.satellite_manager import query_openaerialmap
+        from app.tasks.cctv_tasks import run_inference_on_tile
+
+        results = await query_openaerialmap(
+            bbox,
+            min_resolution=min_resolution,
+            limit=limit,
+            acquired_from=date_from,
+            acquired_to=date_to,
+        )
+
+        queued = 0
+        for img in results:
+            run_inference_on_tile.delay(
+                img.get("product_id") or img.get("uuid", ""),
+                "OAM_DRONE",
+                label,
+            )
+            queued += 1
+
+        return {"source": "OAM", "label": label, "images_queued": queued}
 
     return asyncio.get_event_loop().run_until_complete(_ingest())
 
