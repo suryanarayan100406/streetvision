@@ -4,14 +4,14 @@ import api from '../api';
 import toast from 'react-hot-toast';
 
 export default function ModuleEscalationLogic() {
-  const { data, loading, error, refetch } = useFetch('/admin/module-demo/escalation-logic');
+  const { data, loading, error, refetch } = useFetch('/admin/escalation/overview');
   const [runningEsc, setRunningEsc] = useState(false);
   const [runningRev, setRunningRev] = useState(false);
 
   const runEscalation = async () => {
     try {
       setRunningEsc(true);
-      const { data: res } = await api.post('/admin/module-demo/escalation-logic/run-escalation');
+      const { data: res } = await api.post('/admin/escalation/run-escalation');
       toast.success(`Escalation check queued (${res.task_id?.slice(0, 8) || 'task'})`);
       setTimeout(refetch, 1500);
     } catch (e) {
@@ -24,7 +24,7 @@ export default function ModuleEscalationLogic() {
   const runReverify = async () => {
     try {
       setRunningRev(true);
-      const { data: res } = await api.post('/admin/module-demo/escalation-logic/run-reverify');
+      const { data: res } = await api.post('/admin/escalation/run-reverify');
       toast.success(`Reverify check queued (${res.task_id?.slice(0, 8) || 'task'})`);
       setTimeout(refetch, 1500);
     } catch (e) {
@@ -37,7 +37,7 @@ export default function ModuleEscalationLogic() {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-2xl font-bold">Module Demo · Escalation & Reverify</h2>
+        <h2 className="text-2xl font-bold">Module · Escalation & Reverify</h2>
         <div className="flex items-center gap-2">
           <button onClick={runEscalation} disabled={runningEsc} className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-60">
             {runningEsc ? 'Queueing...' : 'Run Escalation Check'}
@@ -49,7 +49,7 @@ export default function ModuleEscalationLogic() {
         </div>
       </div>
 
-      {loading && <p className="text-sm text-gray-500">Loading escalation module data...</p>}
+      {loading && <p className="text-sm text-gray-500">Loading live escalation data...</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       {data && (

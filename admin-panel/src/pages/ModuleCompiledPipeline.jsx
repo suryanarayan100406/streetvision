@@ -1,93 +1,64 @@
 import { useFetch } from '../hooks/useFetch';
 
+function StatusPill({ ok }) {
+  return (
+    <span className={`px-2 py-1 rounded text-xs font-medium ${ok ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+      {ok ? 'PASS' : 'FAIL'}
+    </span>
+  );
+}
+
 export default function ModuleCompiledPipeline() {
-  const { data, loading, error, refetch } = useFetch('/admin/module-demo/compiled-pipeline');
+  const { data, loading, error, refetch } = useFetch('/admin/pipeline/full-test-report');
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-2xl font-bold">Module Demo · Compiled Pipeline</h2>
-        <button onClick={refetch} className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm">Refresh</button>
+        <h2 className="text-2xl font-bold">Module · Compiled Pipeline Check</h2>
+        <button onClick={refetch} className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm">Run Checks</button>
       </div>
 
-      {loading && <p className="text-sm text-gray-500">Loading pipeline summary...</p>}
+      {loading && <p className="text-sm text-gray-500">Running real pipeline checks...</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       {data && (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <div className="bg-white border rounded-xl p-4">
-              <p className="text-xs text-gray-500">Total Potholes</p>
-              <p className="text-2xl font-bold">{data.overall?.total_potholes ?? 0}</p>
-            </div>
-            <div className="bg-white border rounded-xl p-4">
-              <p className="text-xs text-gray-500">Open Complaints</p>
-              <p className="text-2xl font-bold">{data.overall?.open_complaints ?? 0}</p>
-            </div>
-            <div className="bg-white border rounded-xl p-4">
-              <p className="text-xs text-gray-500">Scans with Scores</p>
-              <p className="text-2xl font-bold">{data.overall?.scans_with_scores ?? 0}</p>
-            </div>
-            <div className="bg-white border rounded-xl p-4">
-              <p className="text-xs text-gray-500">Recent Task Runs</p>
-              <p className="text-2xl font-bold">{data.overall?.recent_task_runs ?? 0}</p>
-            </div>
+          <div className={`mb-6 rounded-xl border px-4 py-3 text-sm ${data.overall_status === 'healthy' ? 'border-green-200 bg-green-50 text-green-700' : 'border-yellow-200 bg-yellow-50 text-yellow-700'}`}>
+            Overall status: <span className="font-semibold">{data.overall_status?.toUpperCase()}</span>
+            <span className="ml-3 text-xs">Generated: {data.generated_at ? new Date(data.generated_at).toLocaleString() : 'N/A'}</span>
           </div>
 
-          <div className="bg-white border rounded-xl p-4 mb-6">
-            <h3 className="font-semibold mb-3">Module Health Snapshot</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-              <div className="border rounded p-3">
-                <p className="text-gray-500">Detection Module</p>
-                <p className="font-semibold">{data.modules?.detection?.status || 'unknown'}</p>
-                <p className="text-xs text-gray-500 mt-1">Recent potholes: {data.modules?.detection?.recent_potholes ?? 0}</p>
-              </div>
-              <div className="border rounded p-3">
-                <p className="text-gray-500">Prediction Module</p>
-                <p className="font-semibold">{data.modules?.prediction?.status || 'unknown'}</p>
-                <p className="text-xs text-gray-500 mt-1">Recent tasks: {data.modules?.prediction?.recent_tasks ?? 0}</p>
-              </div>
-              <div className="border rounded p-3">
-                <p className="text-gray-500">Escalation Module</p>
-                <p className="font-semibold">{data.modules?.escalation?.status || 'unknown'}</p>
-                <p className="text-xs text-gray-500 mt-1">Open complaints: {data.modules?.escalation?.open_complaints ?? 0}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border overflow-hidden mb-6">
-            <div className="px-4 py-3 border-b bg-gray-50 font-semibold text-sm">Recent Pipeline Events</div>
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="text-left px-4 py-3">Type</th>
-                  <th className="text-left px-4 py-3">ID</th>
-                  <th className="text-left px-4 py-3">Status</th>
-                  <th className="text-left px-4 py-3">Created At</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {(data.recent_events || []).map((e) => (
-                  <tr key={`${e.type}-${e.id}`}>
-                    <td className="px-4 py-3">{e.type}</td>
-                    <td className="px-4 py-3">{e.id}</td>
-                    <td className="px-4 py-3">{e.status || '-'}</td>
-                    <td className="px-4 py-3 text-xs text-gray-500">{e.created_at || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="bg-white border rounded-xl p-4">
-            <h3 className="font-semibold mb-3">Counts by Source</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-              {Object.entries(data.counts_by_source || {}).map(([source, count]) => (
-                <div key={source} className="border rounded p-3">
-                  <p className="text-gray-500 capitalize">{source}</p>
-                  <p className="font-semibold text-lg">{count}</p>
+          <div className="bg-white rounded-xl border divide-y mb-6">
+            {(data.checks || []).map((check) => (
+              <div key={check.name} className="px-4 py-3 flex items-start justify-between gap-4">
+                <div>
+                  <p className="font-medium text-gray-800">{check.name}</p>
+                  <p className="text-xs text-gray-500 mt-1 break-all">{check.detail}</p>
                 </div>
-              ))}
+                <StatusPill ok={!!check.ok} />
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-xl border p-4">
+              <h3 className="font-semibold mb-2">24h Activity</h3>
+              <p className="text-sm">Source reports: {data.activity_24h?.source_reports ?? 0}</p>
+              <p className="text-sm">Potholes detected: {data.activity_24h?.potholes_detected ?? 0}</p>
+              <p className="text-sm">Task success: {data.activity_24h?.tasks_success ?? 0}</p>
+              <p className="text-sm">Task failed: {data.activity_24h?.tasks_failed ?? 0}</p>
+            </div>
+
+            <div className="bg-white rounded-xl border p-4">
+              <h3 className="font-semibold mb-2">Queue Depths</h3>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                {Object.entries(data.queues || {}).map(([name, depth]) => (
+                  <div key={name} className="rounded bg-gray-50 px-2 py-1 flex items-center justify-between">
+                    <span>{name}</span>
+                    <span className="font-semibold">{depth}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </>
