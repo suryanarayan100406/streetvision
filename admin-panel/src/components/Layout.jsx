@@ -13,6 +13,10 @@ const NAV_ITEMS = [
   { to: '/scheduler', label: 'Scheduler', icon: '🕐' },
   { to: '/settings', label: 'Settings', icon: '⚡' },
   { to: '/logs', label: 'Logs', icon: '📋' },
+  { to: '/module-detection-output', label: 'Module · Detection', icon: '🧩' },
+  { to: '/module-model-predictions', label: 'Module · Predictions', icon: '🧩' },
+  { to: '/module-escalation-logic', label: 'Module · Escalation', icon: '🧩' },
+  { to: '/module-compiled-pipeline', label: 'Module · Compiled', icon: '🧩' },
 ];
 
 export default function Layout() {

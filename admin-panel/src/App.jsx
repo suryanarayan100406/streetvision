@@ -13,6 +13,10 @@ import Models from './pages/Models';
 import Scheduler from './pages/Scheduler';
 import Settings from './pages/Settings';
 import Logs from './pages/Logs';
+import ModuleDetectionOutput from './pages/ModuleDetectionOutput';
+import ModuleModelPredictions from './pages/ModuleModelPredictions';
+import ModuleEscalationLogic from './pages/ModuleEscalationLogic';
+import ModuleCompiledPipeline from './pages/ModuleCompiledPipeline';
 
 function PrivateRoute({ children }) {
   const token = localStorage.getItem('access_token');
@@ -44,6 +48,10 @@ export default function App() {
           <Route path="scheduler" element={<Scheduler />} />
           <Route path="settings" element={<Settings />} />
           <Route path="logs" element={<Logs />} />
+          <Route path="module-detection-output" element={<ModuleDetectionOutput />} />
+          <Route path="module-model-predictions" element={<ModuleModelPredictions />} />
+          <Route path="module-escalation-logic" element={<ModuleEscalationLogic />} />
+          <Route path="module-compiled-pipeline" element={<ModuleCompiledPipeline />} />
         </Route>
       </Routes>
     </>

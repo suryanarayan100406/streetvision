@@ -81,6 +81,7 @@ from app.routers.admin_scheduler import router as admin_scheduler_router
 from app.routers.admin_settings import router as admin_settings_router
 from app.routers.admin_logs import router as admin_logs_router
 from app.routers.admin_overview import router as admin_overview_router
+from app.routers.admin_module_demo import router as admin_module_demo_router
 from app.routers.mobile import router as mobile_router
 
 app.include_router(public_router)
@@ -96,6 +97,7 @@ app.include_router(admin_scheduler_router)
 app.include_router(admin_settings_router)
 app.include_router(admin_logs_router)
 app.include_router(admin_overview_router)
+app.include_router(admin_module_demo_router)
 app.include_router(mobile_router)
 
 # ---------------------------------------------------------------------------
