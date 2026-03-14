@@ -84,3 +84,24 @@ htmlcov/
 # Build artifacts
 *.tar.gz
 *.zip
+
+# Local ML artifacts (keep primary YOLO in backend/models tracked via LFS)
+backend/runs/
+backend/training/
+backend/yolov8n-seg.pt
+backend/yolov8x-seg.pt
+backend/models/midas_dpt_large_pothole_finetuned.pt
+backend/models/siamese_resnet18_repair.pt
+backend/models/yolov8x-seg-pothole.backup.*.pt
+
+# Local mobile generated artifacts
+mobile-app/.expo/
+mobile-app/android/
+
+# Local notebooks/training workspace artifacts
+colab/
+ml/
+
+# Temporary local test files
+tmp_*.mp4
+tmp_*.jpg
