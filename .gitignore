@@ -48,6 +48,7 @@ build/
 .env
 .env.local
 .env.*.local
+!.env
 
 # OS
 Thumbs.db
