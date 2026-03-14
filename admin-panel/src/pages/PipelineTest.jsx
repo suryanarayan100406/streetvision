@@ -15,7 +15,7 @@ export default function PipelineTest() {
   useEffect(() => {
     const timer = setInterval(() => {
       reportQuery.refetch();
-    }, 15000);
+    }, 30000);
     return () => clearInterval(timer);
   }, [reportQuery.refetch]);
 

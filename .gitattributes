@@ -1,0 +1,1 @@
+backend/models/yolov8x-seg-pothole.pt filter=lfs diff=lfs merge=lfs -text

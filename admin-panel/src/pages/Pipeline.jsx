@@ -15,7 +15,7 @@ export default function Pipeline() {
       queuesQuery.refetch();
       throughputQuery.refetch();
       historyQuery.refetch();
-    }, 15000);
+    }, 30000);
 
     return () => clearInterval(intervalId);
   }, [statusQuery.refetch, queuesQuery.refetch, throughputQuery.refetch, historyQuery.refetch]);
@@ -47,7 +47,7 @@ export default function Pipeline() {
       <div className="flex items-start justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold">Pipeline Monitor</h2>
-          <p className="text-sm text-gray-500 mt-1">Auto-refreshes every 15 seconds using backend pipeline metrics and recent task history.</p>
+          <p className="text-sm text-gray-500 mt-1">Auto-refreshes every 30 seconds using backend pipeline metrics and recent task history.</p>
         </div>
         <button onClick={() => { statusQuery.refetch(); queuesQuery.refetch(); throughputQuery.refetch(); historyQuery.refetch(); }} className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm">
           Refresh
