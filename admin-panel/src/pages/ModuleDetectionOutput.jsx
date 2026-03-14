@@ -3,12 +3,6 @@ import { useFetch } from '../hooks/useFetch';
 import api from '../api';
 import toast from 'react-hot-toast';
 
-const AREA_PRESETS = [
-  { label: 'Raipur Corridor', bbox: '81.6,21.24,82.15,22.09' },
-  { label: 'NH44 Sample', bbox: '78.40,17.20,78.62,17.45' },
-  { label: 'Delhi Ring Sample', bbox: '77.05,28.49,77.30,28.70' },
-];
-
 export default function ModuleDetectionOutput() {
   const { data: missions, refetch: refetchMissions } = useFetch('/admin/drones/missions?limit=20');
   const { data: pending, refetch: refetchPending } = useFetch('/admin/detections/pending?confidence_below=0.95&limit=25');
@@ -30,7 +24,7 @@ export default function ModuleDetectionOutput() {
 
   const [scanForm, setScanForm] = useState({
     source: 'SENTINEL-2',
-    bbox: '81.6,21.24,82.15,22.09',
+    bbox: '',
     limit: 12,
     max_cloud: 20,
     date_from: '',
@@ -152,13 +146,6 @@ export default function ModuleDetectionOutput() {
 
       <div className="bg-white border rounded-xl p-4 mb-6">
         <h3 className="font-semibold mb-3">B) Trigger by Area (BBox)</h3>
-        <div className="flex flex-wrap gap-2 mb-3">
-          {AREA_PRESETS.map((preset) => (
-            <button key={preset.label} onClick={() => setScanForm((p) => ({ ...p, bbox: preset.bbox }))} className="text-xs border rounded px-2 py-1 bg-gray-50 hover:bg-gray-100">
-              {preset.label}
-            </button>
-          ))}
-        </div>
         <div className="grid md:grid-cols-2 gap-3">
           <select value={scanForm.source} onChange={(e) => setScanForm((p) => ({ ...p, source: e.target.value }))} className="border rounded px-3 py-2 text-sm">
             <option value="SENTINEL-2">Sentinel-2</option>

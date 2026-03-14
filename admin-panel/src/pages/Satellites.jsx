@@ -15,7 +15,7 @@ export default function Satellites() {
   const [scenePreview, setScenePreview] = useState(null);
   const [scanForm, setScanForm] = useState({
     source: 'SENTINEL-2',
-    bbox: '81.6,21.24,82.15,22.09',
+    bbox: '',
     limit: 12,
     max_cloud: 20,
     date_from: '',
