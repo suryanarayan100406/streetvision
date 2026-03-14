@@ -30,6 +30,7 @@ app.conf.update(
         "app.tasks.escalation_tasks.*": {"queue": "notification_queue"},
         "app.tasks.weather_tasks.*": {"queue": "satellite_queue"},
         "app.tasks.data_ingestion_tasks.*": {"queue": "satellite_queue"},
+        "app.tasks.model_tasks.*": {"queue": "admin_queue"},
     },
 )
 
@@ -48,4 +49,5 @@ app.autodiscover_tasks([
     "app.tasks.verification_tasks",
     "app.tasks.escalation_tasks",
     "app.tasks.data_ingestion_tasks",
+    "app.tasks.model_tasks",
 ])

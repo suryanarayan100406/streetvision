@@ -4,6 +4,10 @@
     "slug": "cg-pothole-mobile",
     "version": "1.0.0",
     "assetBundlePatterns": ["**/*"],
+    "extra": {
+      "apiHost": "172.16.196.158",
+      "apiPort": "8000"
+    },
     "android": {
       "package": "com.cgpothole.mobile"
     },

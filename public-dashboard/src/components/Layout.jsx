@@ -6,6 +6,7 @@ export default function Layout({ children }) {
 
   const navItems = [
     { label: 'Map', path: '/', icon: '🗺️' },
+    { label: 'Crowdsource', path: '/crowdsource', icon: '📢' },
     { label: 'Kanban', path: '/kanban', icon: '📋' },
     { label: 'Leaderboard', path: '/leaderboard', icon: '🏆' },
     { label: 'Analytics', path: '/analytics', icon: '📊' },

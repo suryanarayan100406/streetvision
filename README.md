@@ -185,6 +185,28 @@ APIS autonomously detects potholes from **4 concurrent sources**:
 - Redis CLI (for testing)
 - CUDA 12.x (optional, for GPU acceleration)
 
+### **Run on Mobile (Same Wi-Fi, No Cloud Server)**
+
+If backend/frontend are running on your laptop and you want to use the app on your phone:
+
+1. Keep laptop + phone on the same Wi-Fi network.
+2. Start backend on all interfaces (`0.0.0.0`).
+  - Docker API already binds `0.0.0.0:8000`.
+3. Start public dashboard dev server:
+  - `cd public-dashboard`
+  - `npm run dev`
+  - Vite now listens on `0.0.0.0:3001`.
+4. Find laptop LAN IP:
+  - Windows: `ipconfig` → IPv4 address (example: `192.168.1.42`).
+5. Open on phone browser:
+  - `http://192.168.1.42:3001`
+
+If LAN access is blocked by router/firewall, best fallback is a secure tunnel:
+- `cloudflared tunnel --url http://localhost:3001`
+- or `ngrok http 3001`
+
+Also allow inbound rules in Windows Firewall for ports `3001` and `8000`.
+
 ### **1. Clone & Initialize**
 
 ```bash
@@ -549,6 +571,190 @@ Response:
   "cost_estimate_usd": 3.45
 }
 ```
+
+---
+
+## 🎥 Drone & CCTV Access (All Available Methods)
+
+All admin methods require a bearer token from:
+
+```http
+POST /api/admin/auth/login
+```
+
+Use:
+
+```bash
+Authorization: Bearer <access_token>
+```
+
+### **Drone missions** (`/api/admin/drones`)
+
+**1) Create mission (add drone footage metadata + trigger processing)**
+
+```http
+POST /api/admin/drones/missions
+Content-Type: application/json
+
+{
+  "mission_name": "cg-1",
+  "operator": "pilot-a",
+  "flight_date": "2026-03-14",
+  "area_bbox": {
+    "lon_min": 81.60,
+    "lat_min": 21.24,
+    "lon_max": 82.15,
+    "lat_max": 22.09
+  },
+  "image_count": 420,
+  "gsd_cm": 2.0
+}
+```
+
+**1b) Direct upload drone footage/file (new)**
+
+```http
+POST /api/admin/drones/missions/upload
+Content-Type: multipart/form-data
+
+Form fields:
+- file: (required) .zip | .jpg | .jpeg | .png | .tif | .tiff | .mp4 | .mov | .mkv
+- mission_name: string (optional)
+- operator: string (optional)
+- flight_date: YYYY-MM-DD (optional)
+- area_bbox: JSON string (optional)
+- gsd_cm: float (optional)
+- image_count: int (optional)
+- auto_process: true/false (default true)
+```
+
+Behavior:
+- Uploads file to MinIO under `drone/uploads/...`
+- Creates a `drone_missions` record with status `UPLOADED`
+- If image type and `auto_process=true`, queues inference automatically
+
+**2) List missions**
+
+```http
+GET /api/admin/drones/missions?limit=50&status=COMPLETED
+```
+
+**3) Get one mission**
+
+```http
+GET /api/admin/drones/missions/{mission_id}
+```
+
+**4) Reprocess a mission**
+
+```http
+POST /api/admin/drones/missions/{mission_id}/reprocess
+```
+
+**5) Delete mission**
+
+```http
+DELETE /api/admin/drones/missions/{mission_id}
+```
+
+### **CCTV nodes / live RTSP access** (`/api/admin/cctv`)
+
+**1) Register live CCTV node (RTSP URL)**
+
+```http
+POST /api/admin/cctv/nodes
+Content-Type: application/json
+
+{
+  "name": "NH53-KM112",
+  "rtsp_url": "rtsp://user:pass@camera-ip:554/stream1",
+  "latitude": 21.2567,
+  "longitude": 81.6296,
+  "nh_number": "53",
+  "chainage_km": 112.4,
+  "perspective_matrix": null
+}
+```
+
+**2) List nodes**
+
+```http
+GET /api/admin/cctv/nodes?active_only=true
+```
+
+**3) Update node config**
+
+```http
+PATCH /api/admin/cctv/nodes/{node_id}
+Content-Type: application/json
+
+{
+  "rtsp_url": "rtsp://user:pass@new-camera-ip:554/stream1",
+  "is_active": true
+}
+```
+
+**4) Test live connection**
+
+```http
+POST /api/admin/cctv/nodes/{node_id}/test
+```
+
+**5) Calibrate homography**
+
+```http
+POST /api/admin/cctv/nodes/{node_id}/calibrate
+Content-Type: application/json
+
+{
+  "src_points": [[10, 20], [100, 20], [100, 200], [10, 200]],
+  "dst_points": [[0, 0], [5, 0], [5, 10], [0, 10]]
+}
+```
+
+**6) Deactivate node**
+
+```http
+DELETE /api/admin/cctv/nodes/{node_id}
+```
+
+### **Public read-only methods (no auth)**
+
+```http
+GET /api/public/cctv/nodes
+GET /api/public/drones/missions
+GET /api/public/satellites/jobs
+```
+
+### **ML model bootstrap (recommended before first live run)**
+
+The pipeline now supports a one-shot bootstrap to load/use pretrained models and register them as active:
+
+```http
+POST /api/admin/models/bootstrap
+```
+
+Response:
+
+```json
+{
+  "queued": true,
+  "task_id": "<celery-task-id>",
+  "message": "Model bootstrap queued (YOLO + MiDaS + Siamese)."
+}
+```
+
+Check progress/result:
+
+```http
+GET /api/admin/models/bootstrap/{task_id}
+```
+
+What bootstrap does:
+- Loads YOLO pothole detector (custom `/models/yolov8x-seg-pothole.pt` if present, else pretrained Ultralytics fallback)
+- Loads MiDaS depth estimator from Torch Hub
+- Loads Siamese repair verifier (custom weights if present, else pretrained ResNet-18 similarity fallback)
+- Registers/activates all three in `model_registry`
 
 ---
 

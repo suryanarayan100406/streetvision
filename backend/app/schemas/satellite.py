@@ -35,6 +35,8 @@ class SatelliteJobOut(BaseModel):
     bbox: dict | None = None
     tiles_total: int
     tiles_processed: int
+    tiles_forwarded_to_inference: int = 0
+    monitoring_only_tiles: int = 0
     detections_count: int
     error_message: str | None = None
     created_at: datetime

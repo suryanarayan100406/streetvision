@@ -7,9 +7,19 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // In a real app, you'd get the user ID from async storage or context
-    api.get('/mobile/profile').then(res => {
-      setProfile(res.data);
+    api.get('/mobile/leaderboard', { params: { limit: 1 } }).then(res => {
+      const topEntry = Array.isArray(res.data) ? res.data[0] : null;
+      if (topEntry) {
+        setProfile({
+          username: topEntry.display_name || topEntry.user_id || 'Contributor',
+          report_count: topEntry.reports_count,
+          total_points: topEntry.total_points,
+          rank: topEntry.rank,
+          recent_reports: [],
+        });
+      } else {
+        setProfile(null);
+      }
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);

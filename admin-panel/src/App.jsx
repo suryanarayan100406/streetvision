@@ -7,6 +7,7 @@ import Satellites from './pages/Satellites';
 import Drones from './pages/Drones';
 import CCTV from './pages/CCTV';
 import Pipeline from './pages/Pipeline';
+import PipelineTest from './pages/PipelineTest';
 import Detections from './pages/Detections';
 import Models from './pages/Models';
 import Scheduler from './pages/Scheduler';
@@ -37,6 +38,7 @@ export default function App() {
           <Route path="drones" element={<Drones />} />
           <Route path="cctv" element={<CCTV />} />
           <Route path="pipeline" element={<Pipeline />} />
+          <Route path="pipeline-test" element={<PipelineTest />} />
           <Route path="detections" element={<Detections />} />
           <Route path="models" element={<Models />} />
           <Route path="scheduler" element={<Scheduler />} />

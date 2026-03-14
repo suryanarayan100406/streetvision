@@ -202,7 +202,9 @@ async def download_logs(
     db: AsyncSession = Depends(get_db),
 ):
     """Recent satellite download logs."""
-    from app.services.minio_client import get_presigned_url
+    from app.services.minio_client import get_minio_client, get_presigned_url
+
+    minio_client = get_minio_client()
 
     def _public_preview_url(path: str | None) -> str | None:
         if not path:
@@ -215,19 +217,32 @@ async def download_logs(
         .limit(limit)
     )
     rows = result.scalars().all()
-    return [
-        {
-            "id": row.id,
-            "job_id": row.job_id,
-            "source_name": row.source_name,
-            "product_id": row.product_id,
-            "file_path": row.file_path,
-            "file_size_mb": row.file_size_mb,
-            "downloaded_at": row.downloaded_at,
-            "preview_url": _public_preview_url(row.file_path),
-        }
-        for row in rows
-    ]
+
+    items: list[dict] = []
+    for row in rows:
+        if row.file_path:
+            try:
+                stat = minio_client.stat_object(settings.MINIO_BUCKET, row.file_path)
+                content_type = (stat.content_type or "").lower()
+                if content_type and not content_type.startswith("image/"):
+                    continue
+            except Exception:
+                continue
+
+        items.append(
+            {
+                "id": row.id,
+                "job_id": row.job_id,
+                "source_name": row.source_name,
+                "product_id": row.product_id,
+                "file_path": row.file_path,
+                "file_size_mb": row.file_size_mb,
+                "downloaded_at": row.downloaded_at,
+                "preview_url": _public_preview_url(row.file_path),
+            }
+        )
+
+    return items
 
 
 @router.get("/credentials-status", response_model=SatelliteCredentialStatusResponse)

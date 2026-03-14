@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { to: '/drones', label: 'Drones', icon: '🚁' },
   { to: '/cctv', label: 'CCTV', icon: '📹' },
   { to: '/pipeline', label: 'Pipeline', icon: '⚙️' },
+  { to: '/pipeline-test', label: 'Pipeline Test', icon: '🧪' },
   { to: '/detections', label: 'Detections', icon: '🕳️' },
   { to: '/models', label: 'ML Models', icon: '🧠' },
   { to: '/scheduler', label: 'Scheduler', icon: '🕐' },

@@ -12,6 +12,8 @@ from pathlib import Path
 import numpy as np
 import structlog
 
+from app.config import settings
+
 logger = structlog.get_logger(__name__)
 
 _model = None
@@ -36,6 +38,44 @@ async def _load_model():
         logger.info("loading_midas", device=str(_device))
 
         _model = torch.hub.load("intel-isl/MiDaS", "DPT_Large", trust_repo=True)
+
+        # Prefer fine-tuned checkpoint if present
+        configured_path = Path(settings.MIDAS_MODEL_PATH)
+        candidate_paths = [
+            configured_path,
+            Path("/models/midas_dpt_large_pothole_finetuned.pt"),
+            Path("/app/ml/midas_dpt_large_pothole_finetuned.pt"),
+        ]
+
+        loaded_custom = False
+        for checkpoint_path in candidate_paths:
+            if not checkpoint_path.exists():
+                continue
+            try:
+                state_dict = torch.load(
+                    checkpoint_path,
+                    map_location=_device,
+                )
+                _model.load_state_dict(state_dict, strict=False)
+                logger.info(
+                    "loaded_custom_midas_checkpoint",
+                    path=str(checkpoint_path),
+                )
+                loaded_custom = True
+                break
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "failed_loading_custom_midas_checkpoint",
+                    path=str(checkpoint_path),
+                    error=str(exc),
+                )
+
+        if not loaded_custom:
+            logger.warning(
+                "custom_midas_checkpoint_not_found_using_pretrained",
+                configured_path=str(configured_path),
+            )
+
         _model.to(_device)
         _model.eval()
 

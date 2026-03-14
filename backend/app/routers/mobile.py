@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.models.pothole import Pothole
 from app.models.source_report import SourceReport
@@ -24,6 +25,8 @@ async def submit_visual_report(
     severity_estimate: str = Form("Medium"),
     description: str = Form(""),
     user_id: str = Form(None),
+    device_id: str | None = Form(None),
+    z_axis_change: float | None = Form(None),
     image: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
@@ -37,7 +40,11 @@ async def submit_visual_report(
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     path = f"mobile-reports/{ts}_{image.filename}"
-    await upload_bytes("reports", path, image_data)
+    upload_bytes(
+        path,
+        image_data,
+        content_type=image.content_type or "application/octet-stream",
+    )
 
     # Create source report
     source_report = SourceReport(
@@ -49,10 +56,17 @@ async def submit_visual_report(
             "severity_estimate": severity_estimate,
             "description": description,
             "user_id": user_id,
+            "device_id": device_id,
+            "z_axis_change": z_axis_change,
         },
         processed=False,
     )
     db.add(source_report)
+    await db.flush()
+
+    from app.services.crowd_consensus import apply_crowd_consensus
+
+    consensus = await apply_crowd_consensus(db, source_report)
 
     # Award gamification points
     if user_id:
@@ -76,13 +90,18 @@ async def submit_visual_report(
 
     # Queue for inference
     from app.tasks.cctv_tasks import run_inference_on_tile
-    run_inference_on_tile.delay(path, latitude, longitude, "mobile_visual")
+    run_inference_on_tile.delay(path, "MOBILE_VISUAL", "")
+
+    escalation = bool(consensus.get("escalation_triggered"))
 
     return MobileReportResponse(
         report_id=source_report.id,
-        status="received",
         points_earned=10 if user_id else 0,
-        message="Report submitted successfully. Processing will begin shortly.",
+        message=(
+            "Report submitted successfully. Consensus escalation triggered for satellite/CCTV-drone review."
+            if escalation
+            else "Report submitted successfully. Processing will begin shortly."
+        ),
     )
 
 
@@ -94,16 +113,28 @@ async def submit_vibration_report(
     duration_ms: int = Form(...),
     speed_kmh: float = Form(0),
     user_id: str = Form(None),
+    device_id: str | None = Form(None),
+    z_axis_change: float | None = Form(None),
+    movement_variance: float = Form(0),
+    moving: bool = Form(False),
     db: AsyncSession = Depends(get_db),
 ):
     """Submit a vibration-based pothole detection from pocket mode."""
+    effective_z_axis_change = z_axis_change if z_axis_change is not None else peak_acceleration
+
     # Validate acceleration threshold
-    if peak_acceleration < 1.5:
+    if (
+        peak_acceleration < 1.5
+        or effective_z_axis_change < float(settings.CROWD_Z_AXIS_HIGH_THRESHOLD)
+        or speed_kmh < float(settings.MOBILE_VIBRATION_MIN_SPEED_KMH)
+        or movement_variance < float(settings.MOBILE_VIBRATION_MIN_VARIANCE)
+        or not moving
+    ):
         return MobileReportResponse(
             report_id=0,
             status="below_threshold",
             points_earned=0,
-            message="Vibration below detection threshold.",
+            message="Large z-axis changes are only reported when the phone is moving and the vibration pattern is irregular enough.",
         )
 
     source_report = SourceReport(
@@ -115,10 +146,19 @@ async def submit_vibration_report(
             "duration_ms": duration_ms,
             "speed_kmh": speed_kmh,
             "user_id": user_id,
+            "device_id": device_id,
+            "z_axis_change": effective_z_axis_change,
+            "movement_variance": movement_variance,
+            "moving": moving,
         },
         processed=False,
     )
     db.add(source_report)
+    await db.flush()
+
+    from app.services.crowd_consensus import apply_crowd_consensus
+
+    consensus = await apply_crowd_consensus(db, source_report)
 
     # Estimate severity from vibration data
     if peak_acceleration > 5.0:
@@ -150,11 +190,18 @@ async def submit_vibration_report(
     await db.commit()
     await db.refresh(source_report)
 
+    escalation = bool(consensus.get("escalation_triggered"))
+
     return MobileReportResponse(
         report_id=source_report.id,
         status="received",
         points_earned=points if user_id else 0,
-        message=f"Vibration report submitted. Estimated severity: {severity}",
+        message=(
+            f"Vibration report submitted. Estimated severity: {severity}. Escalation triggered for satellite/CCTV-drone review."
+            if escalation
+            else f"Vibration report submitted. Estimated severity: {severity}"
+        ),
+        severity=severity,
     )
 
 

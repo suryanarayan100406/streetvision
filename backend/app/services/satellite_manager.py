@@ -554,18 +554,30 @@ async def search_satellite_scenes(
                 continue
             item_bbox = item.get("bbox")
             lat, lon = _bbox_center(item_bbox)
+            assets = item.get("assets") or {}
             rendered_preview = (
-                f"https://planetarycomputer.microsoft.com/api/data/v1/item/preview.png"
-                f"?collection=landsat-c2-l2&item={item.get('id')}"
-                f"&assets=red&assets=green&assets=blue"
-                f"&color_formula=gamma+RGB+2.7%2C+saturation+1.5%2C+sigmoidal+RGB+15+0.55&format=png"
+                ((assets.get("rendered_preview") or {}).get("href"))
+                or ((assets.get("thumbnail") or {}).get("href"))
+                or (
+                    f"https://planetarycomputer.microsoft.com/api/data/v1/item/preview.png"
+                    f"?collection=landsat-c2-l2&item={item.get('id')}"
+                    f"&assets=red&assets=green&assets=blue"
+                    f"&color_formula=gamma+RGB+2.7%2C+saturation+1.5%2C+sigmoidal+RGB+15+0.55&format=png"
+                )
+            )
+            high_res_asset = (
+                ((assets.get("visual") or {}).get("href"))
+                or ((assets.get("rendered_preview") or {}).get("href"))
+                or ((assets.get("red") or {}).get("href"))
+                or ((assets.get("SR_B4") or {}).get("href"))
+                or rendered_preview
             )
             scenes.append(
                 {
                     "product_id": item.get("id"),
                     "title": item.get("id"),
                     "preview_url": rendered_preview,
-                    "asset_url": rendered_preview,
+                    "asset_url": high_res_asset,
                     "captured_at": (item.get("properties") or {}).get("datetime"),
                     "bbox": item_bbox,
                     "lat": lat,
@@ -609,10 +621,11 @@ async def search_satellite_scenes(
                     "title": item.get("id"),
                     "preview_url": ((assets.get("thumbnail") or {}).get("href")
                                     or (assets.get("preview") or {}).get("href")),
-                    "asset_url": ((assets.get("thumbnail") or {}).get("href")
-                                  or (assets.get("preview") or {}).get("href")
-                                  or (assets.get("visual") or {}).get("href")
-                                  or (assets.get("thumbnail") or {}).get("href")),
+                    "asset_url": ((assets.get("visual") or {}).get("href")
+                                  or (assets.get("rendered_preview") or {}).get("href")
+                                  or (assets.get("B04") or {}).get("href")
+                                  or (assets.get("thumbnail") or {}).get("href")
+                                  or (assets.get("preview") or {}).get("href")),
                     "captured_at": (item.get("properties") or {}).get("datetime"),
                     "bbox": item_bbox,
                     "lat": float(lat) if lat is not None else None,

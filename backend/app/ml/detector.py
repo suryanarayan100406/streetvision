@@ -13,16 +13,18 @@ from typing import Any
 import numpy as np
 import structlog
 
+from app.config import settings
+
 logger = structlog.get_logger(__name__)
 
 # Lazy singleton
 _model = None
 _lock = asyncio.Lock()
 
-DEFAULT_MODEL_PATH = Path("/models/yolov8x-seg-pothole.pt")
-CONFIDENCE_THRESHOLD = 0.55
-IOU_THRESHOLD = 0.45
-IMG_SIZE = 1024
+DEFAULT_MODEL_PATH = Path(settings.YOLO_MODEL_PATH)
+CONFIDENCE_THRESHOLD = float(settings.YOLO_CONFIDENCE_THRESHOLD)
+IOU_THRESHOLD = float(settings.YOLO_NMS_IOU)
+IMG_SIZE = int(settings.YOLO_IMG_SIZE)
 
 
 async def _get_model(model_path: str | Path | None = None):

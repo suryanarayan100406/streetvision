@@ -161,3 +161,6 @@ CELERY_BEAT_SCHEDULE = {
         "options": {"queue": "satellite_queue"},
     },
 }
+
+# Backward-compatible alias used by admin scheduler endpoints.
+BEAT_SCHEDULE = CELERY_BEAT_SCHEDULE

@@ -42,6 +42,7 @@ async def _run_manual_satellite_scan(
     job_id: int | None = None,
     forward_to_inference: bool = True,
 ) -> dict:
+    from app.config import settings
     from app.models.satellite import SatelliteDownloadLog, SatelliteJob, SatelliteSource
     from app.services.satellite_manager import (
         materialize_satellite_scene,
@@ -98,15 +99,29 @@ async def _run_manual_satellite_scan(
         job = await db.get(SatelliteJob, job.id)
         job.tiles_total = 0
         job.tiles_processed = 0
+        job.tiles_forwarded_to_inference = 0
+        job.monitoring_only_tiles = 0
         job.detections_count = 0
         await db.commit()
 
         queued = 0
+        queued_for_inference = 0
+        monitoring_only_tiles = 0
         for scene in scenes:
             try:
                 materialized = await materialize_satellite_scene(normalized_source, scene, job_id=job.id)
                 dispatch_paths = materialized.get("tile_paths") or [materialized["file_path"]]
                 dispatch_contexts = materialized.get("tile_contexts") or []
+                gsd = scene.get("gsd_m_per_px")
+                should_forward = forward_to_inference
+                if should_forward and normalized_source in {"SENTINEL-2", "LANDSAT-9", "LANDSAT-8"}:
+                    try:
+                        gsd_val = float(gsd) if gsd is not None else None
+                    except (TypeError, ValueError):
+                        gsd_val = None
+                    if gsd_val is not None and gsd_val > float(settings.SATELLITE_POTHOLE_MAX_GSD_M):
+                        should_forward = False
+                        monitoring_only_tiles += len(dispatch_paths)
 
                 log_entry = SatelliteDownloadLog(
                     job_id=job.id,
@@ -119,9 +134,13 @@ async def _run_manual_satellite_scan(
 
                 job = await db.get(SatelliteJob, job.id)
                 job.tiles_total = int(job.tiles_total or 0) + len(dispatch_paths)
+                if should_forward:
+                    job.tiles_forwarded_to_inference = int(job.tiles_forwarded_to_inference or 0) + len(dispatch_paths)
+                else:
+                    job.monitoring_only_tiles = int(job.monitoring_only_tiles or 0) + len(dispatch_paths)
                 await db.commit()
 
-                if forward_to_inference:
+                if should_forward:
                     for idx, tile_path in enumerate(dispatch_paths):
                         tile_ctx = dispatch_contexts[idx] if idx < len(dispatch_contexts) else {}
                         run_inference_on_tile.delay(
@@ -144,6 +163,7 @@ async def _run_manual_satellite_scan(
                                 "pixel_window": tile_ctx.get("pixel_window"),
                             },
                         )
+                    queued_for_inference += len(dispatch_paths)
                 else:
                     job = await db.get(SatelliteJob, job.id)
                     job.tiles_processed = int(job.tiles_processed or 0) + len(dispatch_paths)
@@ -171,11 +191,24 @@ async def _run_manual_satellite_scan(
         elif source_row is not None and queued == 0:
             source_row.error_count = int(source_row.error_count or 0) + 1
 
-        if not forward_to_inference or job.tiles_total == 0:
+        if monitoring_only_tiles > 0 and not job.error_message:
+            job.error_message = (
+                f"Monitoring-only mode: skipped pothole inference for {monitoring_only_tiles} coarse-resolution tiles "
+                f"(threshold {settings.SATELLITE_POTHOLE_MAX_GSD_M}m/px)"
+            )
+
+        if queued_for_inference == 0 or job.tiles_total == 0:
             job.status = "COMPLETED"
             job.completed_at = datetime.now(timezone.utc)
         await db.commit()
-        return {"source": normalized_source, "job_id": job.id, "images_queued": queued, "tiles_total": job.tiles_total}
+        return {
+            "source": normalized_source,
+            "job_id": job.id,
+            "images_queued": queued,
+            "tiles_total": job.tiles_total,
+            "tiles_forwarded_to_inference": queued_for_inference,
+            "monitoring_only_tiles": monitoring_only_tiles,
+        }
 
 
 async def _run_satellite_ingestion(source_name: str, query_func, **kwargs) -> dict:

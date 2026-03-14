@@ -19,9 +19,13 @@ export default function CCTV() {
   const testNode = async (id) => {
     try {
       const { data } = await api.post(`/admin/cctv/nodes/${id}/test`);
-      toast.success(`Test: ${data.status} — ${data.resolution || ''}`);
-    } catch {
-      toast.error('RTSP connection failed');
+      if (data?.success) {
+        toast.success(data.frame_captured ? 'RTSP connected and frame captured' : 'RTSP connected');
+      } else {
+        toast.error(data?.error || 'RTSP connection failed');
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'RTSP connection failed');
     }
   };
 

@@ -7,6 +7,18 @@ export default function Drones() {
   const { data: missions, refetch } = useFetch('/admin/drones/missions?limit=30');
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ mission_name: '', operator: '', image_count: 0, gsd_cm: 2.0 });
+  const [showUpload, setShowUpload] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadForm, setUploadForm] = useState({
+    mission_name: '',
+    operator: '',
+    flight_date: '',
+    area_bbox: '',
+    image_count: 1,
+    gsd_cm: 2.0,
+    auto_process: true,
+  });
+  const [uploadFile, setUploadFile] = useState(null);
 
   const createMission = async (e) => {
     e.preventDefault();
@@ -22,14 +34,80 @@ export default function Drones() {
     refetch();
   };
 
+  const uploadMission = async (e) => {
+    e.preventDefault();
+    if (!uploadFile) {
+      toast.error('Please choose a file');
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append('file', uploadFile);
+    if (uploadForm.mission_name) fd.append('mission_name', uploadForm.mission_name);
+    if (uploadForm.operator) fd.append('operator', uploadForm.operator);
+    if (uploadForm.flight_date) fd.append('flight_date', uploadForm.flight_date);
+    if (uploadForm.area_bbox) fd.append('area_bbox', uploadForm.area_bbox);
+    fd.append('image_count', String(uploadForm.image_count ?? 0));
+    fd.append('gsd_cm', String(uploadForm.gsd_cm ?? 0));
+    fd.append('auto_process', uploadForm.auto_process ? 'true' : 'false');
+
+    try {
+      setUploading(true);
+      const { data } = await api.post('/admin/drones/missions/upload', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      toast.success(data?.message || 'Upload successful');
+      setUploadFile(null);
+      setUploadForm({
+        mission_name: '',
+        operator: '',
+        flight_date: '',
+        area_bbox: '',
+        image_count: 1,
+        gsd_cm: 2.0,
+        auto_process: true,
+      });
+      setShowUpload(false);
+      refetch();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold">Drone Missions</h2>
-        <button onClick={() => setShowCreate(!showCreate)} className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm">
-          + New Mission
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowUpload(!showUpload)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm">
+            Upload Footage
+          </button>
+          <button onClick={() => setShowCreate(!showCreate)} className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm">
+            + New Mission
+          </button>
+        </div>
       </div>
+
+      {showUpload && (
+        <form onSubmit={uploadMission} className="bg-white rounded-xl border p-4 mb-6 grid grid-cols-2 gap-4">
+          <input type="file" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} className="col-span-2 border rounded px-3 py-2" accept=".zip,.jpg,.jpeg,.png,.tif,.tiff,.mp4,.mov,.mkv" required />
+          <input placeholder="Mission Name" value={uploadForm.mission_name} onChange={(e) => setUploadForm({ ...uploadForm, mission_name: e.target.value })} className="border rounded px-3 py-2" />
+          <input placeholder="Operator" value={uploadForm.operator} onChange={(e) => setUploadForm({ ...uploadForm, operator: e.target.value })} className="border rounded px-3 py-2" />
+          <input type="date" value={uploadForm.flight_date} onChange={(e) => setUploadForm({ ...uploadForm, flight_date: e.target.value })} className="border rounded px-3 py-2" />
+          <input type="number" step="0.1" placeholder="GSD (cm)" value={uploadForm.gsd_cm} onChange={(e) => setUploadForm({ ...uploadForm, gsd_cm: +e.target.value })} className="border rounded px-3 py-2" />
+          <input type="number" placeholder="Image Count" value={uploadForm.image_count} onChange={(e) => setUploadForm({ ...uploadForm, image_count: +e.target.value })} className="border rounded px-3 py-2" />
+          <input placeholder='Area BBox JSON (optional)' value={uploadForm.area_bbox} onChange={(e) => setUploadForm({ ...uploadForm, area_bbox: e.target.value })} className="border rounded px-3 py-2" />
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={uploadForm.auto_process} onChange={(e) => setUploadForm({ ...uploadForm, auto_process: e.target.checked })} />
+            Auto process after upload (image files)
+          </label>
+          <button type="submit" disabled={uploading} className="col-span-2 bg-indigo-600 text-white py-2 rounded-lg disabled:opacity-60">
+            {uploading ? 'Uploading...' : 'Upload'}
+          </button>
+        </form>
+      )}
 
       {showCreate && (
         <form onSubmit={createMission} className="bg-white rounded-xl border p-4 mb-6 grid grid-cols-2 gap-4">

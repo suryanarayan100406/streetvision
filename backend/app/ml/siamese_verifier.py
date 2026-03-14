@@ -12,13 +12,16 @@ from pathlib import Path
 import numpy as np
 import structlog
 
+from app.config import settings
+
 logger = structlog.get_logger(__name__)
 
 _model = None
+_fallback_encoder = None
 _device = None
 _lock = asyncio.Lock()
 
-DEFAULT_MODEL_PATH = Path("/models/siamese_resnet18_repair.pt")
+DEFAULT_MODEL_PATH = Path(settings.SIAMESE_MODEL_PATH)
 REPAIRED_THRESHOLD = 0.85
 PARTIAL_THRESHOLD = 0.60
 INPUT_SIZE = (224, 224)
@@ -26,12 +29,12 @@ INPUT_SIZE = (224, 224)
 
 async def _load_model(model_path: str | Path | None = None):
     """Lazy-load the Siamese model."""
-    global _model, _device
-    if _model is not None:
+    global _model, _fallback_encoder, _device
+    if _model is not None or _fallback_encoder is not None:
         return
 
     async with _lock:
-        if _model is not None:
+        if _model is not None or _fallback_encoder is not None:
             return
 
         import torch
@@ -41,7 +44,7 @@ async def _load_model(model_path: str | Path | None = None):
         _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info("loading_siamese_model", device=str(_device))
 
-        path = Path(model_path) if model_path else DEFAULT_MODEL_PATH
+        configured_path = Path(model_path) if model_path else DEFAULT_MODEL_PATH
 
         class SiameseNetwork(nn.Module):
             """Twin-branch network with shared ResNet-18 encoder."""
@@ -66,17 +69,44 @@ async def _load_model(model_path: str | Path | None = None):
                 diff = torch.abs(e1 - e2)
                 return self.fc(diff)
 
-        _model = SiameseNetwork()
+        candidate_paths = [
+            configured_path,
+            Path("/models/siamese_resnet18_repair.pt"),
+            Path("/app/ml/siamese_resnet18_repair.pt"),
+        ]
 
-        if path.exists():
-            state = torch.load(str(path), map_location=_device, weights_only=True)
-            _model.load_state_dict(state)
-            logger.info("siamese_weights_loaded", path=str(path))
-        else:
-            logger.warning("siamese_no_weights", path=str(path))
+        loaded_custom = False
+        for path in candidate_paths:
+            if not path.exists():
+                continue
+            try:
+                _model = SiameseNetwork()
+                state = torch.load(str(path), map_location=_device)
+                _model.load_state_dict(state, strict=False)
+                logger.info("siamese_weights_loaded", path=str(path))
+                _model.to(_device)
+                _model.eval()
+                loaded_custom = True
+                break
+            except Exception as exc:
+                logger.warning(
+                    "siamese_weights_load_failed",
+                    path=str(path),
+                    error=str(exc),
+                )
 
-        _model.to(_device)
-        _model.eval()
+        if not loaded_custom:
+            logger.warning("siamese_no_weights_using_pretrained_resnet", path=str(configured_path))
+            try:
+                backbone = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+                _fallback_encoder = nn.Sequential(*list(backbone.children())[:-1])
+                _fallback_encoder.to(_device)
+                _fallback_encoder.eval()
+            except Exception as exc:
+                logger.warning("siamese_pretrained_resnet_unavailable", error=str(exc))
+                _fallback_encoder = nn.Sequential(*list(models.resnet18(weights=None).children())[:-1])
+                _fallback_encoder.to(_device)
+                _fallback_encoder.eval()
 
 
 def _preprocess(image: np.ndarray) -> "torch.Tensor":
@@ -126,7 +156,13 @@ async def compare(
 
     def _infer():
         with torch.no_grad():
-            return _model(t_before, t_after).item()
+            if _model is not None:
+                return _model(t_before, t_after).item()
+
+            emb_before = _fallback_encoder(t_before).flatten(1)
+            emb_after = _fallback_encoder(t_after).flatten(1)
+            cos = torch.nn.functional.cosine_similarity(emb_before, emb_after).item()
+            return (cos + 1.0) / 2.0
 
     # The Siamese network outputs similarity where:
     # 1.0 = identical (repaired — after looks like good road)

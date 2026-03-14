@@ -77,10 +77,15 @@ class Settings(BaseSettings):
     VITE_MAPBOX_TOKEN: str = ""
 
     # ─── Detection defaults ────────────────────────────────────
+    YOLO_MODEL_PATH: str = "/models/yolov8x-seg-pothole.pt"
+    MIDAS_MODEL_PATH: str = "/models/midas_dpt_large_pothole_finetuned.pt"
+    SIAMESE_MODEL_PATH: str = "/models/siamese_resnet18_repair.pt"
     YOLO_CONFIDENCE_THRESHOLD: float = 0.55
     YOLO_NMS_IOU: float = 0.45
+    YOLO_IMG_SIZE: int = 1024
     TILE_SIZE: int = 640
     TILE_OVERLAP_PCT: float = 0.10
+    SATELLITE_POTHOLE_MAX_GSD_M: float = 0.5
     ROAD_BUFFER_M: float = 50.0
     UTM_EPSG: int = 32644
 
@@ -93,6 +98,17 @@ class Settings(BaseSettings):
     ESCALATION_L1_DAYS: int = 30
     ESCALATION_L2_DAYS: int = 60
     ESCALATION_L3_DAYS: int = 90
+
+    # ─── Crowd consensus ──────────────────────────────────────
+    CROWD_Z_AXIS_HIGH_THRESHOLD: float = 4.0
+    CROWD_CONSENSUS_MIN_DEVICES: int = 2
+    CROWD_CONFIDENCE_BOOST_MIN_DEVICES: int = 10
+    CROWD_CONFIDENCE_BOOST_VALUE: float = 0.15
+    CROWD_CLUSTER_RADIUS_M: float = 75.0
+    CROWD_CCTV_RADIUS_M: float = 3000.0
+    CROWD_LOOKBACK_HOURS: int = 48
+    MOBILE_VIBRATION_MIN_SPEED_KMH: float = 8.0
+    MOBILE_VIBRATION_MIN_VARIANCE: float = 0.85
 
     # ─── Risk score weights ────────────────────────────────────
     RISK_SEVERITY_WEIGHT: float = 0.35

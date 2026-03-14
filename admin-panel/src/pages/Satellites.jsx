@@ -166,6 +166,9 @@ export default function Satellites() {
         <p className="text-xs text-gray-600 mb-3">
           Preview scenes for a bbox, then trigger a fetch that stores imagery in object storage and forwards it to inference.
         </p>
+        <p className="text-xs text-amber-700 mb-3">
+          Sentinel/Landsat imagery is used for corridor monitoring; pothole inference is auto-skipped for coarse resolution tiles.
+        </p>
         <div className="grid md:grid-cols-2 gap-3">
           <div>
             <label className="block text-xs text-gray-600 mb-1">Source</label>
@@ -397,6 +400,7 @@ export default function Satellites() {
               <th className="text-left px-4 py-3">ID</th>
               <th className="text-left px-4 py-3">Status</th>
               <th className="text-left px-4 py-3">Tiles</th>
+              <th className="text-left px-4 py-3">Mode</th>
               <th className="text-left px-4 py-3">Detections</th>
               <th className="text-left px-4 py-3">Created</th>
             </tr>
@@ -411,6 +415,17 @@ export default function Satellites() {
                   </span>
                 </td>
                 <td className="px-4 py-3">{j.tiles_processed}/{j.tiles_total}</td>
+                <td className="px-4 py-3 text-xs">
+                  {j.monitoring_only_tiles > 0 && j.tiles_forwarded_to_inference === 0 ? (
+                    <span className="px-2 py-1 rounded bg-amber-100 text-amber-800 font-medium">
+                      Monitoring only ({j.monitoring_only_tiles})
+                    </span>
+                  ) : (
+                    <span className="px-2 py-1 rounded bg-blue-100 text-blue-800 font-medium">
+                      Inference ({j.tiles_forwarded_to_inference || 0})
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-3">{j.detections_count}</td>
                 <td className="px-4 py-3 text-gray-500">{j.created_at}</td>
               </tr>

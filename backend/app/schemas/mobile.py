@@ -40,4 +40,6 @@ class LeaderboardEntry(BaseModel):
 class MobileReportResponse(BaseModel):
     report_id: int
     points_earned: int
+    status: str = "received"
     message: str = "Report received"
+    severity: str | None = None

@@ -30,6 +30,7 @@ def run_inference_on_tile(
         import httpx
         import numpy as np
 
+        from app.config import settings
         from app.ml.detector import detect
         from app.ml.depth_estimator import estimate_depth
         from app.models.pothole import Pothole
@@ -117,7 +118,32 @@ def run_inference_on_tile(
             await _update_job_progress(error="image_decode_failed")
             return {"source": source, "tile_id": tile_id, "detections": 0, "error": "image_decode_failed"}
 
-        detections = await detect(image)
+        source_upper = (source or "").upper()
+        gsd_value = context.get("gsd_m_per_px")
+        try:
+            gsd_value = float(gsd_value) if gsd_value is not None else None
+        except (TypeError, ValueError):
+            gsd_value = None
+
+        if source_upper in {"SENTINEL-2", "LANDSAT-9", "LANDSAT-8"} and gsd_value is not None and gsd_value > float(settings.SATELLITE_POTHOLE_MAX_GSD_M):
+            await logger.ainfo(
+                "inference_skipped_coarse_resolution",
+                tile_id=tile_id,
+                source=source,
+                gsd_m_per_px=gsd_value,
+                threshold_m_per_px=float(settings.SATELLITE_POTHOLE_MAX_GSD_M),
+            )
+            await _update_job_progress()
+            return {
+                "source": source,
+                "tile_id": tile_id,
+                "detections": 0,
+                "skipped": "coarse_resolution",
+                "gsd_m_per_px": gsd_value,
+                "threshold_m_per_px": float(settings.SATELLITE_POTHOLE_MAX_GSD_M),
+            }
+
+        detections = await detect(image, confidence=float(settings.YOLO_CONFIDENCE_THRESHOLD))
 
         async with async_session_factory() as db:
             created = 0
@@ -240,6 +266,46 @@ def process_cctv_frame(self, camera_id: str):
             await db.commit()
 
             return {"camera_id": camera_id, "frame_path": frame_path}
+
+    return asyncio.get_event_loop().run_until_complete(_process())
+
+
+@app.task(name="app.tasks.cctv_tasks.process_cctv_node", bind=True)
+def process_cctv_node(self, node_id: int, highway: str | None = None):
+    """Capture and process a single frame from a CCTV node by node id."""
+
+    async def _process():
+        from sqlalchemy import select
+        from app.models.cctv import CCTVNode
+        from app.services.cctv_manager import capture_and_process_frame
+        from app.services.minio_client import upload_bytes
+
+        import cv2
+
+        async with async_session_factory() as db:
+            result = await db.execute(select(CCTVNode).where(CCTVNode.id == node_id, CCTVNode.is_active.is_(True)))
+            node = result.scalar_one_or_none()
+            if not node:
+                return {"error": f"CCTV node {node_id} not found or inactive"}
+
+            frame_data = capture_and_process_frame(
+                node.rtsp_url,
+                perspective_matrix=node.perspective_matrix,
+            )
+            if not frame_data:
+                return {"error": "Frame capture failed"}
+
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            frame_path = f"cctv/node_{node_id}/{ts}.jpg"
+            _, buffer = cv2.imencode(".jpg", frame_data["frame"])
+            upload_bytes(frame_path, buffer.tobytes(), content_type="image/jpeg")
+
+            run_inference_on_tile.delay(frame_path, "CCTV", highway or node.nh_number or "")
+
+            node.last_frame_at = datetime.now(timezone.utc)
+            await db.commit()
+
+            return {"node_id": node_id, "frame_path": frame_path, "queued": True}
 
     return asyncio.get_event_loop().run_until_complete(_process())
 

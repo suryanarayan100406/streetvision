@@ -77,7 +77,7 @@ async def test_node(node_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Node not found")
 
     from app.services.cctv_manager import test_rtsp_connection
-    test_result = await test_rtsp_connection(node.rtsp_url)
+    test_result = test_rtsp_connection(node.rtsp_url)
     return test_result
 
 

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from celery.result import AsyncResult
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.settings import ModelRegistry
+from app.tasks.celery_app import app as celery_app
 
 router = APIRouter(prefix="/api/admin/models", tags=["admin-models"])
 
@@ -53,6 +55,34 @@ async def register_model(
     return model
 
 
+@router.post("/bootstrap")
+async def bootstrap_models():
+    """Trigger pretrained model bootstrap/warmup in background."""
+    from app.tasks.model_tasks import bootstrap_pretrained_models
+
+    task = bootstrap_pretrained_models.delay()
+    return {
+        "queued": True,
+        "task_id": task.id,
+        "message": "Model bootstrap queued (YOLO + MiDaS + Siamese).",
+    }
+
+
+@router.get("/bootstrap/{task_id}")
+async def bootstrap_status(task_id: str):
+    """Get background model bootstrap task status/result."""
+    result = AsyncResult(task_id, app=celery_app)
+    payload = {
+        "task_id": task_id,
+        "state": result.state,
+    }
+    if result.successful():
+        payload["result"] = result.result
+    elif result.failed():
+        payload["error"] = str(result.result)
+    return payload
+
+
 @router.post("/{model_id}/activate")
 async def activate_model(model_id: int, db: AsyncSession = Depends(get_db)):
     """Activate a model (deactivates other models of the same type)."""
@@ -96,7 +126,7 @@ async def upload_weights(
 
     data = await file.read()
     path = f"models/{model.model_name}/{model.version}/{file.filename}"
-    url = await upload_bytes("ml-models", path, data)
+    upload_bytes(path, data)
 
     model.weights_path = path
     await db.commit()
