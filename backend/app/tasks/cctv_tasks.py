@@ -159,8 +159,17 @@ def run_inference_on_tile(
                 else:
                     geo = {"road_name": "", "district": "", "nearest_landmark": ""}
 
-                depth_result = await estimate_depth(image, det.get("mask"))
-                depth_cm = float(depth_result.get("estimated_depth_cm") or 0.0)
+                try:
+                    depth_result = await estimate_depth(image, det.get("mask"))
+                    depth_cm = float(depth_result.get("estimated_depth_cm") or 0.0)
+                except Exception as exc:
+                    depth_cm = 0.0
+                    await logger.awarning(
+                        "depth_estimation_failed_fallback_zero",
+                        tile_id=tile_id,
+                        source=source,
+                        error=str(exc),
+                    )
 
                 gsd = float(context.get("gsd_m_per_px") or 0.05)
                 area_px = int(det.get("area_px") or 0)

@@ -32,10 +32,15 @@ async def _load_model():
         if _model is not None:
             return
 
+        import os
         import torch
 
         _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info("loading_midas", device=str(_device))
+
+        # Ensure hub cache directory exists before parallel workers race to create it
+        hub_dir = torch.hub.get_dir()
+        os.makedirs(hub_dir, exist_ok=True)
 
         _model = torch.hub.load("intel-isl/MiDaS", "DPT_Large", trust_repo=True)
 
@@ -79,6 +84,7 @@ async def _load_model():
         _model.to(_device)
         _model.eval()
 
+        # Ensure hub cache dir exists for transforms too
         midas_transforms = torch.hub.load(
             "intel-isl/MiDaS", "transforms", trust_repo=True
         )

@@ -42,11 +42,33 @@ async def _get_model(model_path: str | Path | None = None):
         path = Path(model_path) if model_path else DEFAULT_MODEL_PATH
         if path.exists():
             logger.info("loading_yolo_model", path=str(path))
-            _model = YOLO(str(path))
+            _model = YOLO(str(path), task="segment")
         else:
             fallback_model = "yolov8n-seg.pt"
             logger.warning(
                 "yolo_model_not_found_using_fallback",
+                missing_path=str(path),
+                fallback=fallback_model,
+            )
+            _model = YOLO(fallback_model)
+        return _model
+
+
+async def _reload_model(model_path: str | Path | None = None):
+    """Force reload model instance, used for compatibility retries."""
+    global _model
+
+    async with _lock:
+        from ultralytics import YOLO
+
+        path = Path(model_path) if model_path else DEFAULT_MODEL_PATH
+        if path.exists():
+            logger.warning("reloading_yolo_model_with_segment_task", path=str(path))
+            _model = YOLO(str(path), task="segment")
+        else:
+            fallback_model = "yolov8n-seg.pt"
+            logger.warning(
+                "reload_yolo_model_not_found_using_fallback",
                 missing_path=str(path),
                 fallback=fallback_model,
             )
@@ -84,17 +106,35 @@ async def detect(
 
     # Run inference in thread pool to avoid blocking event loop
     loop = asyncio.get_event_loop()
-    results = await loop.run_in_executor(
-        None,
-        lambda: model.predict(
-            image,
-            conf=confidence,
-            iou=iou,
-            imgsz=img_size,
-            verbose=False,
-            retina_masks=True,
-        ),
-    )
+    try:
+        results = await loop.run_in_executor(
+            None,
+            lambda: model.predict(
+                image,
+                conf=confidence,
+                iou=iou,
+                imgsz=img_size,
+                verbose=False,
+                retina_masks=True,
+            ),
+        )
+    except AttributeError as exc:
+        if "detect" not in str(exc).lower():
+            raise
+
+        logger.warning("yolo_predict_compat_retry", error=str(exc))
+        model = await _reload_model(model_path)
+        results = await loop.run_in_executor(
+            None,
+            lambda: model.predict(
+                image,
+                conf=confidence,
+                iou=iou,
+                imgsz=img_size,
+                verbose=False,
+                retina_masks=True,
+            ),
+        )
 
     detections = []
     for result in results:

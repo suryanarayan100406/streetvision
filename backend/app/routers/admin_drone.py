@@ -190,18 +190,21 @@ async def reprocess_mission(mission_id: int, db: AsyncSession = Depends(get_db))
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
 
-    mission.processing_status = "PENDING"
-    mission.completed_at = None
-    await db.commit()
-
+    previous_status = mission.processing_status
     uploaded_path = mission.orthophoto_path or mission.dsm_path
-    if mission.processing_status == "UPLOADED" and not uploaded_path:
+    upload_ext = os.path.splitext(uploaded_path or "")[1].lower()
+
+    if previous_status == "UPLOADED" and not uploaded_path:
         raise HTTPException(
             status_code=400,
             detail="This uploaded mission was created before upload-path tracking. Please re-upload the video and reprocess.",
         )
 
-    if uploaded_path and os.path.splitext(uploaded_path)[1].lower() in ALLOWED_DRONE_UPLOAD_EXTENSIONS:
+    mission.processing_status = "PENDING"
+    mission.completed_at = None
+    await db.commit()
+
+    if uploaded_path and upload_ext in ALLOWED_DRONE_UPLOAD_EXTENSIONS:
         from app.tasks.drone_tasks import process_uploaded_drone_asset
 
         process_uploaded_drone_asset.delay(mission.id, uploaded_path)
