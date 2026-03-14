@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { to: '/module-detection-output', label: 'Module · Detection Run', icon: '🧩' },
   { to: '/module-model-predictions', label: 'Module · Predictions Run', icon: '🧩' },
   { to: '/module-escalation-logic', label: 'Module · Escalation Run', icon: '🧩' },
+  { to: '/module-verification-recheck', label: 'Module · Verification Run', icon: '🧩' },
   { to: '/module-compiled-pipeline', label: 'Module · Compiled Check', icon: '🧩' },
 ];
 

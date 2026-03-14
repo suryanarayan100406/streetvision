@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+import time
 from typing import Any
 
 import structlog
@@ -80,12 +81,12 @@ Urgency: This {urgency}.
 {"Reference dereliction of duty in maintaining safe road infrastructure." if escalation_level >= 2 else ""}
 {"Cite {pothole_data.get('accident_count', 0)} documented road accidents within 2km." if pothole_data.get('accident_count', 0) > 3 else ""}"""
 
+    started = time.perf_counter()
     audit = GeminiAudit(
         pothole_id=pothole_data.get("pothole_id"),
-        use_case="complaint_generation",
-        prompt_text=user_prompt,
-        model_name=model_name,
-        called_at=datetime.now(timezone.utc),
+        model_used=model_name,
+        success=False,
+        created_at=datetime.now(timezone.utc),
     )
 
     try:
@@ -100,9 +101,10 @@ Urgency: This {urgency}.
         response = model.generate_content(user_prompt)
         text = response.text
 
-        audit.response_text = text
-        audit.prompt_tokens = response.usage_metadata.prompt_token_count if hasattr(response, "usage_metadata") else None
-        audit.completion_tokens = response.usage_metadata.candidates_token_count if hasattr(response, "usage_metadata") else None
+        usage = getattr(response, "usage_metadata", None)
+        audit.input_tokens = getattr(usage, "prompt_token_count", None) if usage else None
+        audit.output_tokens = getattr(usage, "candidates_token_count", None) if usage else None
+        audit.latency_ms = int((time.perf_counter() - started) * 1000)
         audit.success = True
 
         db.add(audit)
@@ -126,6 +128,7 @@ Urgency: This {urgency}.
         return result
 
     except Exception as exc:
+        audit.latency_ms = int((time.perf_counter() - started) * 1000)
         audit.success = False
         audit.error_message = str(exc)
         db.add(audit)

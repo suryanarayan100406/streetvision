@@ -40,40 +40,55 @@ def file_complaint(self, pothole_id: int):
 
             # Count sources
             source_result = await db.execute(
-                select(SourceReport.source).where(SourceReport.pothole_id == pothole_id).distinct()
+                select(SourceReport.source_type).where(SourceReport.pothole_id == pothole_id).distinct()
             )
-            sources = [r[0] for r in source_result]
+            sources = [r[0] for r in source_result if r[0]]
+
+            first_complaint_result = await db.execute(
+                select(Complaint)
+                .where(Complaint.pothole_id == pothole_id)
+                .order_by(Complaint.created_at.asc())
+                .limit(1)
+            )
+            first_complaint = first_complaint_result.scalar_one_or_none()
+            days_since_filing = 0
+            if first_complaint and first_complaint.filed_at:
+                days_since_filing = max(
+                    0,
+                    (datetime.now(timezone.utc) - first_complaint.filed_at).days,
+                )
 
             # Build pothole data dict
             pothole_data = {
                 "pothole_id": pothole.id,
-                "road_name": pothole.road_name,
-                "km_marker": str(pothole.km_marker or "N/A"),
+                "road_name": pothole.nh_number or "Unknown Road",
+                "km_marker": str(pothole.chainage_km or "N/A"),
                 "district": pothole.district or "Raipur",
-                "latitude": 0,  # Extract from geom
-                "longitude": 0,
-                "nearest_landmark": pothole.nearest_landmark,
-                "area_sqm": str(pothole.area_sqm or 0),
-                "depth_cm": str(pothole.depth_cm or 0),
+                "latitude": pothole.latitude or 0,
+                "longitude": pothole.longitude or 0,
+                "nearest_landmark": pothole.address or "N/A",
+                "area_sqm": str(pothole.estimated_area_m2 or 0),
+                "depth_cm": str(pothole.estimated_depth_cm or 0),
                 "severity": pothole.severity,
                 "risk_score": str(pothole.risk_score or 0),
                 "source_count": len(sources),
-                "sources_list": ", ".join(sources),
+                "sources_list": ", ".join(sources) if sources else "drone",
                 "detection_date": pothole.detected_at.isoformat() if pothole.detected_at else "N/A",
                 "accident_count": 0,
                 "traffic_volume_category": "High",
                 "rain_imminent": pothole.rain_flag,
                 "forecast_rain_48h_mm": 0,
                 "prev_complaint_count": prev_complaint_count,
-                "days_since_filing": 0,
+                "days_since_filing": days_since_filing,
             }
 
             # Determine escalation level
             escalation_level = 0
             last_complaint_result = await db.execute(
-                select(Complaint).where(
-                    Complaint.pothole_id == pothole_id, Complaint.status == "FILED"
-                ).order_by(Complaint.filed_at.desc()).limit(1)
+                select(Complaint)
+                .where(Complaint.pothole_id == pothole_id)
+                .order_by(Complaint.created_at.desc())
+                .limit(1)
             )
             last_complaint = last_complaint_result.scalar_one_or_none()
             if last_complaint and last_complaint.escalation_level:
@@ -95,17 +110,16 @@ def file_complaint(self, pothole_id: int):
             )
 
             # Store complaint
+            portal_status = filing_result.get("status", "PENDING")
             complaint = Complaint(
                 pothole_id=pothole_id,
                 complaint_text=gemini_result.get("body", ""),
                 portal_ref=filing_result.get("portal_ref"),
-                filed_at=datetime.now(timezone.utc) if filing_result.get("status") == "FILED" else None,
-                status=filing_result.get("status", "PENDING"),
+                portal_status=portal_status,
+                filed_at=datetime.now(timezone.utc) if portal_status == "FILED" else None,
                 escalation_level=escalation_level,
-                rain_flag=pothole.rain_flag,
-                gemini_model=gemini_result.get("model"),
                 filing_proof_path=filing_result.get("filing_proof_path"),
-                filing_source="PG_PORTAL",
+                filing_method="PG_PORTAL",
             )
             db.add(complaint)
 
@@ -119,7 +133,7 @@ def file_complaint(self, pothole_id: int):
                         body=gemini_result.get("body", ""),
                         pothole_id=pothole_id,
                     )
-                    complaint.filing_source = "EMAIL_FALLBACK"
+                    complaint.filing_method = "EMAIL_FALLBACK"
 
             await db.commit()
             return {

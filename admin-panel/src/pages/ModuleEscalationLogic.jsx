@@ -7,6 +7,7 @@ export default function ModuleEscalationLogic() {
   const { data, loading, error, refetch } = useFetch('/admin/escalation/overview');
   const [runningEsc, setRunningEsc] = useState(false);
   const [runningRev, setRunningRev] = useState(false);
+  const [runningSync, setRunningSync] = useState(false);
 
   const runEscalation = async () => {
     try {
@@ -34,11 +35,27 @@ export default function ModuleEscalationLogic() {
     }
   };
 
+  const runPortalSync = async () => {
+    try {
+      setRunningSync(true);
+      const { data: res } = await api.post('/admin/escalation/run-portal-sync');
+      toast.success(`Portal sync queued (${res.task_id?.slice(0, 8) || 'task'})`);
+      setTimeout(refetch, 1200);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to queue portal sync');
+    } finally {
+      setRunningSync(false);
+    }
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-bold">Module · Escalation & Reverify</h2>
         <div className="flex items-center gap-2">
+          <button onClick={runPortalSync} disabled={runningSync} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-60">
+            {runningSync ? 'Queueing...' : 'Sync Detected → Portal'}
+          </button>
           <button onClick={runEscalation} disabled={runningEsc} className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-60">
             {runningEsc ? 'Queueing...' : 'Run Escalation Check'}
           </button>

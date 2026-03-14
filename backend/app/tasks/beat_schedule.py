@@ -123,6 +123,11 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(hour=14, minute=0),  # Daily 2 PM
         "options": {"queue": "verification_queue"},
     },
+    "portal_sync_job": {
+        "task": "app.tasks.escalation_tasks.sync_detected_potholes_to_portal",
+        "schedule": crontab(minute=30, hour="*/2"),  # Every 2 hours
+        "options": {"queue": "notification_queue"},
+    },
     "escalation_check_job": {
         "task": "app.tasks.escalation_tasks.check_all_escalations",
         "schedule": crontab(hour=6, minute=0),  # Daily 6 AM

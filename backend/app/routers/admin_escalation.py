@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, or_, select
@@ -40,11 +40,11 @@ async def escalation_overview(db: AsyncSession = Depends(get_db)):
         .order_by(Complaint.escalation_level.asc())
     )
 
-    cutoff = date.today() - timedelta(days=14)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=14)
     due_reverify_q = await db.execute(
-        select(func.count(Pothole.id)).where(
-            Pothole.last_repair_status != "Repaired",
-            or_(Pothole.last_scan_date <= cutoff, Pothole.last_scan_date.is_(None)),
+        select(func.count(Complaint.id)).where(
+            unresolved_filter,
+            or_(Complaint.escalated_at <= cutoff, Complaint.filed_at <= cutoff),
         )
     )
 
@@ -109,6 +109,15 @@ async def run_escalation_logic():
 
     task = check_all_escalations.delay()
     return {"queued": True, "task_id": task.id, "task": "check_all_escalations"}
+
+
+@router.post("/run-portal-sync")
+async def run_portal_sync_logic():
+    """Queue complaint filing for detected potholes not yet filed on portal."""
+    from app.tasks.escalation_tasks import sync_detected_potholes_to_portal
+
+    task = sync_detected_potholes_to_portal.delay()
+    return {"queued": True, "task_id": task.id, "task": "sync_detected_potholes_to_portal"}
 
 
 @router.post("/run-reverify")

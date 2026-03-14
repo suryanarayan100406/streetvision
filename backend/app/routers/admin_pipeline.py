@@ -293,6 +293,40 @@ async def full_test_report(db: AsyncSession = Depends(get_db)):
         }
     )
 
+    verification_runs_q = await db.execute(
+        select(func.count(TaskHistory.id)).where(
+            TaskHistory.completed_at >= last_24h,
+            TaskHistory.task_name.in_([
+                "verify_all_repairs",
+                "verify_single_pothole",
+            ]),
+            TaskHistory.status == "SUCCESS",
+        )
+    )
+    escalation_runs_q = await db.execute(
+        select(func.count(TaskHistory.id)).where(
+            TaskHistory.completed_at >= last_24h,
+            TaskHistory.task_name.in_([
+                "check_all_escalations",
+                "escalate_single_complaint",
+                "sync_detected_potholes_to_portal",
+            ]),
+            TaskHistory.status == "SUCCESS",
+        )
+    )
+    verification_runs = int(verification_runs_q.scalar() or 0)
+    escalation_runs = int(escalation_runs_q.scalar() or 0)
+    checks.append(
+        {
+            "name": "post-filing-and-reverify-modules",
+            "ok": verification_runs > 0 or escalation_runs > 0,
+            "detail": (
+                f"verification_runs_24h={verification_runs}, "
+                f"escalation_runs_24h={escalation_runs}"
+            ),
+        }
+    )
+
     overall_ok = all(item["ok"] for item in checks[:4])
 
     return {
