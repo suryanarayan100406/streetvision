@@ -66,6 +66,20 @@ export default function ReportScreen() {
     }
   };
 
+  // Show warning banner on screen open
+  React.useEffect(() => {
+    showShakeNotice(
+      'warn',
+      '⚠️ Warning: Auto pothole detection is active on this screen.',
+      false,
+      4500,
+    );
+    setMotionState((prev) => ({
+      ...prev,
+      lastStatus: 'Warning shown on open: auto-detection active',
+    }));
+  }, []);
+
   React.useEffect(() => {
     (async () => {
       try {
