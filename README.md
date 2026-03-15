@@ -87,91 +87,45 @@ APIS autonomously detects potholes from **4 concurrent sources**:
 
 ## 🔧 Technology Stack
 
-### **Backend**
-| Component | Tech | Version | Notes |
-|-----------|------|---------|-------|
-| API Framework | FastAPI | 0.111.0 | Async-first, OpenAPI docs |
-| Database | PostgreSQL | 15 | + PostGIS 3.4, GeoAlchemy2 |
-| ORM | SQLAlchemy | 2.0 | Async with asyncpg driver |
-| Task Queue | Celery | 5.3 | Redis broker, 7 namespaced queues |
-| Scheduler | Celery Beat | Built-in | 30+ periodic tasks |
-| ML Model 1 | YOLOv8x-seg | Latest | Confidence: 0.55, NMS IoU: 0.45 |
-| ML Model 2 | MiDaS v3 DPT | Latest | Depth: 0-50cm depth range |
-| ML Model 3 | Siamese ResNet-18 | Custom | Repair verification (SSIM + contrastive) |
-| LLM | Gemini 1.5 Flash/Pro | Latest | 14 RPM (Flash), 2 RPM (Pro) via google-generativeai |
-| File Storage | MinIO | Latest | S3-compatible, on-premise |
-| Browser Automation | Playwright | Latest | Headless Chromium for PG Portal |
-| Web Server | Gunicorn+ Uvicorn | Latest | 4 workers, pre-forking |
-| Reverse Proxy | Nginx | 1.27 | Rate limiting, WebSocket support |
-| Real-time | Socket.IO | 4.7.5 | Namespace: /admin-stream, /dashboard-stream |
-| Migration | Alembic | Latest | Async migration support |
-| API Docs | Swagger UI | Auto | OpenAPI 3.0 via FastAPI |
+### **Backend (Python / API / ML)**
+- **Framework & server:** FastAPI `0.111.0`, Uvicorn `0.29.0`, Gunicorn `21.2.0`, `python-multipart`
+- **Database & GIS:** PostgreSQL 15 + PostGIS 3.4, SQLAlchemy `2.0.29`, AsyncPG `0.29.0`, Psycopg2 `2.9.9`, GeoAlchemy2 `0.15.0`, Alembic `1.13.1`
+- **Queue & cache:** Celery `5.3.6` with Redis `5.0.3` broker/backing store
+- **Validation & auth:** Pydantic `2.7.1`, Pydantic Settings `2.2.1`, Email Validator `2.1.1`, PyJWT `2.8.0`, Passlib `1.7.4`, Python-JOSE `3.3.0`
+- **Computer vision / ML:** Ultralytics YOLO `8.3.40`, Torch `2.2.2`, Torchvision `0.17.2`, OpenCV Headless `4.9.0.80`, scikit-image `0.23.2`, timm `0.9.16`
+- **Geospatial data:** Rasterio `1.3.10`, GeoPandas `0.14.3`, Shapely `2.0.4`, PyProj `3.6.1`, GeoJSON `3.1.0`
+- **Satellite & weather tooling:** Sentinelsat `1.2.1`, EODAG `2.12.1`, Herbie Data `2024.3.0`
+- **Automation & AI:** Playwright `1.43.0`, Google Generative AI (`google-generativeai`) `0.5.2`
+- **Storage, realtime & observability libs:** MinIO SDK `7.2.5`, Python Socket.IO `5.11.2`, Structlog `24.1.0`, Prometheus FastAPI Instrumentator `7.0.0`, MLflow `2.12.1`
 
-### **Frontend (Admin)**
-| Component | Tech | Version |
-|-----------|------|---------|
-| UI Framework | React | 18.3 |
-| Build Tool | Vite | 5.3 |
-| Styling | Tailwind CSS | 3.4 |
-| Routing | React Router | 6.23 |
-| HTTP | Axios | 1.7 |
-| Real-time | Socket.IO Client | 4.7 |
-| Charts | Recharts | 2.12 |
-| Maps | Mapbox GL JS | 3.4 |
-| Notifications | React Hot Toast | 2.4 |
+### **Admin Panel (Web)**
+- **Core:** React `18.3.1`, React DOM `18.3.1`, React Router DOM `6.23.1`
+- **Build & styling:** Vite `5.3.1`, Tailwind CSS `3.4.4`, PostCSS `8.4.38`, Autoprefixer `10.4.19`
+- **App libs:** Axios `1.7.2`, Socket.IO Client `4.7.5`, Recharts `2.12.7`, Mapbox GL `3.4.0`, Leaflet `1.9.4`, React Hot Toast `2.4.1`, Date-fns `3.6.0`, Clsx `2.1.1`
 
-### **Frontend (Public)**
-| Component | Tech | Version |
-|-----------|------|---------|
-| Same as Admin + Live map integration, complaint Kanban board |
+### **Public Dashboard (Web)**
+- **Core/build:** React `18.3.1`, Vite `5.3.1`, Tailwind CSS `3.4.4`
+- **App libs:** Axios `1.7.2`, Socket.IO Client `4.7.5`, Recharts `2.12.7`, Mapbox GL `3.4.0`, Leaflet `1.9.4`, React Router DOM `6.23.1`, React Hot Toast `2.4.1`
 
-### **Mobile**
-| Component | Tech | Version |
-|-----------|------|---------|
-| Framework | React Native | 0.74 |
-| Runtime | Expo | 51 |
-| Navigation | React Navigation | 6.5 |
-| Camera | expo-camera | 14.1 |
-| Location | expo-location | 17.0 |
-| Sensors | expo-sensors | 13.0 (for vibration detection) |
-| HTTP | Axios | 1.7 |
+### **Mobile App**
+- **Runtime:** Expo `51`, React Native `0.74.5`, React `18.2.0`
+- **Navigation:** React Navigation (`@react-navigation/native`, `stack`, `bottom-tabs`)
+- **Device capabilities:** `expo-camera`, `expo-location`, `expo-sensors`
+- **Mobile utilities:** AsyncStorage, Axios, Gesture Handler, Reanimated, Safe Area Context, Screens
+- **Build target:** Android release APK via Gradle (`assembleRelease`)
 
-### **Infrastructure**
-| Service | Tech | Version | Purpose |
-|---------|------|---------|---------|
-| Containerization | Docker | 24+ | All services |
-| Orchestration | Docker Compose | 2.0+ | Local dev & staging |
-| Monitoring | Prometheus | Latest | Metrics collection |
-| Visualization | Grafana | Latest | Dashboards |
-| Logging | Loki + Promtail | Latest | Log aggregation |
-| ML Registry | MLflow | Latest | Model versioning |
-| Geo Processing | GDAL | 3.8 | GIS operations |
-| Reverse Geocoding | Nominatim (OSM) | Self-hosted | Address lookup |
-| Tile Server | NodeODM | 4.0 | Drone mission orchestration |
+### **Infrastructure & DevOps**
+- **Containerization:** Docker + Docker Compose
+- **Core services:** `api`, `db` (PostGIS), `redis`, multiple Celery workers, `celery_beat`
+- **Edge routing:** Nginx reverse proxy
+- **ML/data services:** NodeODM (`odm_worker`), MinIO, MLflow
+- **Monitoring stack:** Prometheus `v2.51.0`, Grafana `10.4.1`, Loki `2.9.4`, Promtail `2.9.4`
 
-### **External APIs**
-| Service | Purpose | Auth | Rate Limit |
-|---------|---------|------|-----------|
-| ESA Scihub / CDSE | Sentinel-1/2 imagery | OAuth2 / API Key | 100req/min |
-| Copernicus Bhoonidhi | Landsat 8/9 + MODIS | API Key | 50req/min |
-| JAXA ALOS | Radar imagery | Free (registration) | 100req/day |
-| USGS EarthExplorer | Landsat access | API Key | 100req/min |
-| GIS | Sentinel-5P, MODIS | API Key | Unlimited |
-| Google Earth Engine | Advanced geospatial analysis | OAuth2 | per-project |
-| Gemini API | Complaint narrative generation | API Key | 14 RPM (Flash), 2 RPM (Pro) |
-| OpenWeatherMap | Weather context for severity | API Key | 60req/min |
-| IMD (India Met) | Rainfall, temperature | Free | Bulk download |
-| Open-Meteo | Free weather data | None | 10,000req/day |
-| NOAA GFS | Weather forecasts | Free | Bulk download |
-| NHAI | Highway traffic data | API Key | Custom |
-| OSM Overpass | Road geometry, features | Free | 2req/sec |
-| Mapillary | Street-level imagery | API Key | 600req/hour |
-| KartaView | Community imagery | Free | 100req/min |
-| data.gov.in | Government datasets | API Key | Custom |
-| NRSC (ISRO) | UAV flight data | Custom auth | As per MOU |
-| PG Portal | Complaint filing (pgportal.gov.in) | Web scraping | Via Playwright |
-| MinIO | Object storage | AWS S3-compatible | N/A |
-| Maps Box | Street maps | API Key | 50k reqs free tier |
+### **Data Sources & Integrations (Configured/Used)**
+- ESA Sentinel / Copernicus ecosystem (via `sentinelsat`, `eodag`)
+- PG Portal flow automation (Playwright-based)
+- Gemini API integration for complaint narrative/routing assistance
+- Optional map/data integrations via environment keys (Google Maps / Mapbox tokens)
 
 ---
 
