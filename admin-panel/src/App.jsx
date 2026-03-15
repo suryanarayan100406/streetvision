@@ -18,6 +18,7 @@ import ModuleModelPredictions from './pages/ModuleModelPredictions';
 import ModuleEscalationLogic from './pages/ModuleEscalationLogic';
 import ModuleCompiledPipeline from './pages/ModuleCompiledPipeline';
 import ModuleVerificationRecheck from './pages/ModuleVerificationRecheck';
+import ModuleInferenceDecision from './pages/ModuleInferenceDecision';
 
 function PrivateRoute({ children }) {
   const token = localStorage.getItem('access_token');
@@ -53,6 +54,7 @@ export default function App() {
           <Route path="module-model-predictions" element={<ModuleModelPredictions />} />
           <Route path="module-escalation-logic" element={<ModuleEscalationLogic />} />
           <Route path="module-verification-recheck" element={<ModuleVerificationRecheck />} />
+          <Route path="module-inference-decision" element={<ModuleInferenceDecision />} />
           <Route path="module-compiled-pipeline" element={<ModuleCompiledPipeline />} />
         </Route>
       </Routes>

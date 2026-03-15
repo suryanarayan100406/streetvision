@@ -11,6 +11,7 @@ from sqlalchemy import select, or_
 from app.tasks.celery_app import app
 from app.database import async_session_factory
 from app.models.task import TaskHistory
+from app.config import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -20,6 +21,14 @@ ESCALATION_TARGETS = {
     2: "District Collector",
     3: "Principal Secretary, Public Works Department",
 }
+
+
+def _escalation_days_for_level(next_level: int) -> int:
+    if next_level <= 1:
+        return int(settings.ESCALATION_L1_DAYS)
+    if next_level == 2:
+        return int(settings.ESCALATION_L2_DAYS)
+    return int(settings.ESCALATION_L3_DAYS)
 
 
 def _open_status_filter():
@@ -61,9 +70,10 @@ def sync_detected_potholes_to_portal(self, limit: int = 200):
                 select(Pothole.id)
                 .where(
                     Pothole.status.in_(["Detected", "Confirmed"]),
+                    Pothole.risk_score >= float(settings.AUTO_FILE_MIN_RISK_SCORE),
                     ~Pothole.id.in_(select(complaint_subq.c.pothole_id)),
                 )
-                .order_by(Pothole.detected_at.asc())
+                .order_by(Pothole.risk_score.desc(), Pothole.detected_at.asc())
                 .limit(limit)
             )
             pothole_ids = [int(r[0]) for r in result.all()]
@@ -153,7 +163,7 @@ def escalate_single_complaint(self, complaint_id: int):
             if baseline_time is None:
                 return {"complaint_id": complaint_id, "action": "missing_dates"}
 
-            due_after = baseline_time + timedelta(days=14)
+            due_after = baseline_time + timedelta(days=_escalation_days_for_level(min((complaint.escalation_level or 0) + 1, 3)))
             if datetime.now(timezone.utc) < due_after:
                 return {
                     "complaint_id": complaint_id,
@@ -180,8 +190,8 @@ def escalate_single_complaint(self, complaint_id: int):
 
             await db.commit()
 
-            # Re-file complaint at higher authority
-            file_complaint.delay(complaint.pothole_id)
+            # Re-file complaint at higher authority preserving escalation context
+            file_complaint.delay(complaint.pothole_id, True, new_level, complaint.id)
 
             logger.info(
                 "escalated_complaint",

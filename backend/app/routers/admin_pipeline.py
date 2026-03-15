@@ -327,7 +327,12 @@ async def full_test_report(db: AsyncSession = Depends(get_db)):
         }
     )
 
-    overall_ok = all(item["ok"] for item in checks[:4])
+    critical_check_names = {"database", "redis", "yolo_weights"}
+    overall_ok = all(
+        item["ok"]
+        for item in checks
+        if item.get("name") in critical_check_names
+    )
 
     return {
         "generated_at": now.isoformat(),

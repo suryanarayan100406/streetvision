@@ -21,7 +21,10 @@ async def check_escalation(db: AsyncSession, pothole_id: int) -> int | None:
     """Check if a pothole complaint needs escalation. Returns new level or None."""
     result = await db.execute(
         select(Complaint)
-        .where(Complaint.pothole_id == pothole_id, Complaint.status == "FILED")
+        .where(
+            Complaint.pothole_id == pothole_id,
+            Complaint.filed_at.is_not(None),
+        )
         .order_by(Complaint.filed_at.asc())
         .limit(1)
     )
@@ -45,14 +48,19 @@ async def check_escalation(db: AsyncSession, pothole_id: int) -> int | None:
 async def get_authority_contact(db: AsyncSession, escalation_level: int) -> dict[str, str] | None:
     """Get government contact for escalation level."""
     result = await db.execute(
-        select(GovernmentContact).where(GovernmentContact.escalation_level == escalation_level)
+        select(GovernmentContact).where(GovernmentContact.authority_level == escalation_level)
     )
     contact = result.scalar_one_or_none()
     if contact is None:
         return None
+
+    authority_title = contact.designation or contact.department or "Road Authority"
+    if contact.name:
+        authority_title = f"{authority_title} ({contact.name})"
+
     return {
-        "authority_title": contact.authority_title,
-        "email": contact.email,
+        "authority_title": authority_title,
+        "email": contact.email or "",
         "department": contact.department or "",
     }
 

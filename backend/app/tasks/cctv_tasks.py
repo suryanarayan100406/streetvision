@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from decimal import Decimal
 
 import structlog
 
 from app.tasks.celery_app import app
 from app.database import async_session_factory
+from app.ml.classifier import classify_from_detection
+from app.services.decision_engine import decide_detection_action, normalize_source_type
+from app.services.risk_engine import compute_risk_score
 
 logger = structlog.get_logger(__name__)
 
@@ -29,6 +31,7 @@ def run_inference_on_tile(
         import cv2
         import httpx
         import numpy as np
+        from sqlalchemy import func, select
 
         from app.config import settings
         from app.ml.detector import detect
@@ -37,7 +40,6 @@ def run_inference_on_tile(
         from app.models.satellite import SatelliteJob
         from app.models.source_report import SourceReport
         from app.services.minio_client import download_bytes
-        from app.services.confidence_engine import determine_action
         from app.services.geocoder import reverse_geocode
 
         async def _update_job_progress(detections_increment: int = 0, error: str | None = None) -> None:
@@ -146,7 +148,20 @@ def run_inference_on_tile(
         detections = await detect(image, confidence=float(settings.YOLO_CONFIDENCE_THRESHOLD))
 
         async with async_session_factory() as db:
+            original_report_result = await db.execute(
+                select(SourceReport)
+                .where(
+                    SourceReport.image_url == tile_id,
+                    func.lower(SourceReport.source_type) == str(source or "").lower(),
+                    SourceReport.processed.is_(False),
+                )
+                .order_by(SourceReport.id.desc())
+                .limit(1)
+            )
+            original_report = original_report_result.scalar_one_or_none()
+
             created = 0
+            created_pothole_ids: list[int] = []
             for det in detections:
                 lat = float(context.get("lat") or 0.0)
                 lon = float(context.get("lon") or 0.0)
@@ -175,19 +190,42 @@ def run_inference_on_tile(
                 area_px = int(det.get("area_px") or 0)
                 area_sqm = float(area_px * (gsd**2)) if area_px > 0 else 0.0
 
-                severity = classify_severity(area_sqm, depth_cm)
-
                 base_conf = float(det.get("confidence", 0.6) or 0.6)
-                severity_risk = {"Low": 20.0, "Medium": 45.0, "High": 70.0, "Critical": 90.0}
-                risk_score = severity_risk.get(severity, 30.0)
+
+                severity_meta = classify_from_detection(
+                    det,
+                    gsd_m_per_px=gsd,
+                    depth_cm=depth_cm,
+                    near_junction=False,
+                    on_curve=False,
+                    aadt=0,
+                )
+                severity = severity_meta.get("severity", "Medium")
+
+                decision = decide_detection_action(
+                    yolo_confidence=base_conf,
+                    source_type=source,
+                    area_m2=area_sqm,
+                    depth_cm=depth_cm,
+                    severity=severity,
+                )
+
+                normalized_source = normalize_source_type(source)
+                if decision.get("source_multiplier", 1.0) == 1.0 and normalized_source not in {"UNKNOWN", "CCTV"}:
+                    await logger.awarning(
+                        "decision_source_not_mapped",
+                        source=source,
+                        normalized_source=normalized_source,
+                        tile_id=tile_id,
+                    )
 
                 pothole = Pothole(
                     latitude=float(lat),
                     longitude=float(lon),
                     geom=f"SRID=4326;POINT({lon} {lat})",
                     severity=severity,
-                    confidence_score=round(base_conf, 3),
-                    risk_score=round(risk_score, 2),
+                    confidence_score=decision["fused_confidence"],
+                    risk_score=decision["risk_score"],
                     status="Detected",
                     nh_number=highway or None,
                     district=geo.get("district") or None,
@@ -200,6 +238,17 @@ def run_inference_on_tile(
                 db.add(pothole)
                 await db.flush()
 
+                try:
+                    async with db.begin_nested():
+                        canonical_risk = await compute_risk_score(db, pothole.id)
+                    pothole.risk_score = float(canonical_risk)
+                except Exception as exc:
+                    await logger.awarning(
+                        "risk_score_recompute_failed_using_decision_risk",
+                        pothole_id=pothole.id,
+                        error=str(exc),
+                    )
+
                 report = SourceReport(
                     pothole_id=pothole.id,
                     source_type=source,
@@ -211,21 +260,48 @@ def run_inference_on_tile(
                         "bbox": context.get("bbox"),
                         "class_name": det.get("class_name"),
                         "bbox_px": det.get("bbox"),
+                        "yolo_confidence": round(base_conf, 3),
+                        "depth_cm": round(float(depth_cm), 2),
+                        "area_m2": round(float(area_sqm), 4),
+                        "severity_score": severity_meta.get("score"),
+                        "decision_action": decision["action"],
+                        "fused_confidence": decision["fused_confidence"],
+                        "decision_risk_score": decision["risk_score"],
+                        "canonical_risk_score": float(pothole.risk_score or 0),
+                        "source_multiplier": decision.get("source_multiplier", 1.0),
+                        "normalized_source": decision.get("normalized_source", normalized_source),
+                        "decision_reason": decision.get("decision_reason"),
                     },
                     image_url=tile_id,
                     captured_at=datetime.now(timezone.utc),
-                    confidence_boost=round(base_conf, 3),
+                    confidence_boost=decision["fused_confidence"],
                     processed=True,
                 )
                 db.add(report)
                 await db.flush()
 
-                action = determine_action(Decimal(str(base_conf)))
-                if action == "AUTO_FILE_COMPLAINT":
+                created_pothole_ids.append(int(pothole.id))
+
+                action = decision["action"]
+                if action == "AUTO_FILE_COMPLAINT" and float(pothole.risk_score or 0) >= float(settings.AUTO_FILE_MIN_RISK_SCORE):
                     from app.tasks.filing_tasks import file_complaint
                     file_complaint.delay(pothole.id)
 
                 created += 1
+
+            if original_report is not None:
+                original_report.processed = True
+                if len(created_pothole_ids) == 1:
+                    original_report.pothole_id = created_pothole_ids[0]
+                payload = dict(original_report.raw_payload or {})
+                payload.update(
+                    {
+                        "inference_tile_id": tile_id,
+                        "detections_created": created,
+                        "created_pothole_ids": created_pothole_ids,
+                    }
+                )
+                original_report.raw_payload = payload
 
             await db.commit()
             await _update_job_progress(detections_increment=created)
@@ -245,7 +321,7 @@ def process_cctv_frame(self, camera_id: str):
 
         async with async_session_factory() as db:
             result = await db.execute(
-                select(CCTVNode).where(CCTVNode.camera_id == camera_id, CCTVNode.status == "ACTIVE")
+                select(CCTVNode).where(CCTVNode.name == camera_id, CCTVNode.is_active.is_(True))
             )
             node = result.scalar_one_or_none()
             if not node:
@@ -268,15 +344,47 @@ def process_cctv_frame(self, camera_id: str):
             upload_bytes(frame_path, buffer.tobytes(), content_type="image/jpeg")
 
             # Queue inference
-            run_inference_on_tile.delay(frame_path, "CCTV", node.highway or "")
+            run_inference_on_tile.delay(frame_path, "CCTV", node.nh_number or "")
 
             # Update last active
-            node.last_active = datetime.now(timezone.utc)
+            node.last_frame_at = datetime.now(timezone.utc)
             await db.commit()
 
             return {"camera_id": camera_id, "frame_path": frame_path}
 
     return asyncio.get_event_loop().run_until_complete(_process())
+
+
+@app.task(name="app.tasks.cctv_tasks.poll_active_cctv_nodes", bind=True)
+def poll_active_cctv_nodes(self, limit: int = 200):
+    """Queue frame processing for all active CCTV nodes."""
+
+    async def _run():
+        from sqlalchemy import select
+        from app.models.cctv import CCTVNode
+
+        async with async_session_factory() as db:
+            result = await db.execute(
+                select(CCTVNode.id, CCTVNode.nh_number)
+                .where(CCTVNode.is_active.is_(True))
+                .order_by(CCTVNode.id.asc())
+                .limit(limit)
+            )
+            rows = result.all()
+
+        queued = 0
+        for row in rows:
+            process_cctv_node.delay(int(row.id), row.nh_number)
+            queued += 1
+
+        await logger.ainfo(
+            "poll_active_cctv_nodes_queued",
+            queued=queued,
+            limit=limit,
+        )
+        return {"queued": queued, "limit": limit}
+
+    return asyncio.get_event_loop().run_until_complete(_run())
 
 
 @app.task(name="app.tasks.cctv_tasks.process_cctv_node", bind=True)
@@ -317,25 +425,3 @@ def process_cctv_node(self, node_id: int, highway: str | None = None):
             return {"node_id": node_id, "frame_path": frame_path, "queued": True}
 
     return asyncio.get_event_loop().run_until_complete(_process())
-
-
-def classify_severity(area_sqm: float, depth_cm: float) -> str:
-    """Classify pothole severity based on area and depth. Higher wins."""
-    area_sev = "Low"
-    if area_sqm > 1.5:
-        area_sev = "Critical"
-    elif area_sqm > 0.5:
-        area_sev = "High"
-    elif area_sqm > 0.1:
-        area_sev = "Medium"
-
-    depth_sev = "Low"
-    if depth_cm > 10:
-        depth_sev = "Critical"
-    elif depth_cm > 5:
-        depth_sev = "High"
-    elif depth_cm > 2:
-        depth_sev = "Medium"
-
-    severity_order = {"Low": 0, "Medium": 1, "High": 2, "Critical": 3}
-    return area_sev if severity_order[area_sev] >= severity_order[depth_sev] else depth_sev

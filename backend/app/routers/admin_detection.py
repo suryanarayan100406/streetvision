@@ -62,7 +62,7 @@ async def approve_detection(
     # Trigger filing if above auto-file threshold
     if pothole.confidence_score >= 0.70:
         from app.tasks.filing_tasks import file_complaint
-        file_complaint.delay(pothole_id)
+        file_complaint.delay(pothole_id, True)
 
     return {"approved": pothole_id}
 

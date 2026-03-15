@@ -14,6 +14,7 @@ import numpy as np
 import structlog
 
 from app.config import settings
+from app.services.model_registry import get_active_model_weights
 
 logger = structlog.get_logger(__name__)
 
@@ -39,7 +40,19 @@ async def _get_model(model_path: str | Path | None = None):
 
         from ultralytics import YOLO
 
-        path = Path(model_path) if model_path else DEFAULT_MODEL_PATH
+        selected = str(model_path) if model_path else await get_active_model_weights(
+            "DETECTION",
+            str(DEFAULT_MODEL_PATH),
+            virtual_prefixes=("ultralytics:",),
+        )
+
+        if selected.startswith("ultralytics:"):
+            model_name = selected.split(":", 1)[1] or "yolov8n-seg.pt"
+            logger.info("loading_yolo_model_from_registry_alias", model=model_name)
+            _model = YOLO(model_name)
+            return _model
+
+        path = Path(selected)
         if path.exists():
             logger.info("loading_yolo_model", path=str(path))
             _model = YOLO(str(path), task="segment")
@@ -61,7 +74,19 @@ async def _reload_model(model_path: str | Path | None = None):
     async with _lock:
         from ultralytics import YOLO
 
-        path = Path(model_path) if model_path else DEFAULT_MODEL_PATH
+        selected = str(model_path) if model_path else await get_active_model_weights(
+            "DETECTION",
+            str(DEFAULT_MODEL_PATH),
+            virtual_prefixes=("ultralytics:",),
+        )
+
+        if selected.startswith("ultralytics:"):
+            model_name = selected.split(":", 1)[1] or "yolov8n-seg.pt"
+            logger.warning("reloading_yolo_model_from_registry_alias", model=model_name)
+            _model = YOLO(model_name)
+            return _model
+
+        path = Path(selected)
         if path.exists():
             logger.warning("reloading_yolo_model_with_segment_task", path=str(path))
             _model = YOLO(str(path), task="segment")

@@ -229,6 +229,95 @@ async def mobile_leaderboard(
     ]
 
 
+@router.post("/profile/login")
+async def mobile_profile_login(
+    user_id: str = Form(...),
+    display_name: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create/update a lightweight mobile profile identity."""
+    normalized_user_id = (user_id or "").strip()
+    if not normalized_user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    normalized_display_name = (display_name or "").strip() or normalized_user_id
+
+    points_q = await db.execute(
+        select(GamificationPoints).where(GamificationPoints.user_id == normalized_user_id)
+    )
+    points = points_q.scalar_one_or_none()
+    if points:
+        points.display_name = normalized_display_name
+    else:
+        points = GamificationPoints(
+            user_id=normalized_user_id,
+            display_name=normalized_display_name,
+            total_points=0,
+            reports_count=0,
+        )
+        db.add(points)
+
+    await db.commit()
+
+    leaderboard_q = await db.execute(
+        select(GamificationPoints)
+        .order_by(GamificationPoints.total_points.desc(), GamificationPoints.reports_count.desc())
+    )
+    entries = leaderboard_q.scalars().all()
+    rank = next((idx + 1 for idx, entry in enumerate(entries) if entry.user_id == normalized_user_id), None)
+
+    return {
+        "user_id": points.user_id,
+        "display_name": points.display_name or points.user_id,
+        "total_points": int(points.total_points or 0),
+        "reports_count": int(points.reports_count or 0),
+        "rank": rank,
+        "status": "ok",
+    }
+
+
+@router.get("/profile/me")
+async def mobile_profile_me(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch profile stats for the current lightweight mobile identity."""
+    normalized_user_id = (user_id or "").strip()
+    if not normalized_user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    points_q = await db.execute(
+        select(GamificationPoints).where(GamificationPoints.user_id == normalized_user_id)
+    )
+    points = points_q.scalar_one_or_none()
+
+    if points is None:
+        return {
+            "user_id": normalized_user_id,
+            "display_name": normalized_user_id,
+            "total_points": 0,
+            "reports_count": 0,
+            "rank": None,
+            "status": "new_user",
+        }
+
+    leaderboard_q = await db.execute(
+        select(GamificationPoints)
+        .order_by(GamificationPoints.total_points.desc(), GamificationPoints.reports_count.desc())
+    )
+    entries = leaderboard_q.scalars().all()
+    rank = next((idx + 1 for idx, entry in enumerate(entries) if entry.user_id == normalized_user_id), None)
+
+    return {
+        "user_id": points.user_id,
+        "display_name": points.display_name or points.user_id,
+        "total_points": int(points.total_points or 0),
+        "reports_count": int(points.reports_count or 0),
+        "rank": rank,
+        "status": "ok",
+    }
+
+
 @router.get("/nearby")
 async def nearby_for_mobile(
     lat: float,

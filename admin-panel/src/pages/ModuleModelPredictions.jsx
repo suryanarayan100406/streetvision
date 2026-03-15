@@ -1,16 +1,97 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useFetch } from '../hooks/useFetch';
 import api from '../api';
 import toast from 'react-hot-toast';
+import GooglePotholeMap from '../components/GooglePotholeMap';
+
+const SIMULATED_PREDICTION_HINTS = [
+  {
+    id: 'sim-nh53-01',
+    highway: 'NH-53',
+    district: 'Raipur',
+    latitude: 21.2522,
+    longitude: 81.6314,
+    probability: 0.41,
+    note: 'Possible pothole-prone patch after rain; low-confidence model hint.',
+  },
+  {
+    id: 'sim-nh53-02',
+    highway: 'NH-53',
+    district: 'Raipur',
+    latitude: 21.2287,
+    longitude: 81.7079,
+    probability: 0.38,
+    note: 'Surface undulation likely; requires field validation.',
+  },
+  {
+    id: 'sim-nh53-03',
+    highway: 'NH-53',
+    district: 'Mahasamund',
+    latitude: 21.1669,
+    longitude: 81.9021,
+    probability: 0.44,
+    note: 'Historic stress zone; model predicts possible future pothole.',
+  },
+  {
+    id: 'sim-nh53-04',
+    highway: 'NH-53',
+    district: 'Mahasamund',
+    latitude: 21.1243,
+    longitude: 82.0356,
+    probability: 0.36,
+    note: 'Possible defect area; currently below detection threshold.',
+  },
+  {
+    id: 'sim-nh53-05',
+    highway: 'NH-53',
+    district: 'Mahasamund',
+    latitude: 21.1086,
+    longitude: 82.0993,
+    probability: 0.4,
+    note: 'Model-only advisory point, not a confirmed pothole.',
+  },
+];
 
 export default function ModuleModelPredictions() {
   const { data: models, loading, error, refetch } = useFetch('/admin/models/');
   const { data: taskFeed, refetch: refetchTaskFeed } = useFetch('/admin/pipeline/task-history?task_name=run_inference_on_tile&limit=20');
+  const { data: liveGeojson } = useFetch('/public/geojson');
 
   const [bootstrapTaskId, setBootstrapTaskId] = useState('');
   const [bootstrapState, setBootstrapState] = useState(null);
   const [runningBootstrap, setRunningBootstrap] = useState(false);
   const [checkingBootstrap, setCheckingBootstrap] = useState(false);
+  const [showSimulatedHints, setShowSimulatedHints] = useState(true);
+
+  const simulatedFeatures = useMemo(
+    () => SIMULATED_PREDICTION_HINTS.map((hint) => ({
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [hint.longitude, hint.latitude],
+      },
+      properties: {
+        id: hint.id,
+        severity: 'Simulated',
+        risk_score: Math.round(hint.probability * 100),
+        status: 'SIMULATED_HINT',
+        nh_number: hint.highway,
+        district: hint.district,
+        detected_at: null,
+        simulated: true,
+        note: hint.note,
+      },
+    })),
+    []
+  );
+
+  const predictionMapGeojson = useMemo(() => {
+    const liveFeatures = Array.isArray(liveGeojson?.features) ? liveGeojson.features : [];
+    return {
+      type: 'FeatureCollection',
+      features: showSimulatedHints ? [...liveFeatures, ...simulatedFeatures] : liveFeatures,
+    };
+  }, [liveGeojson, showSimulatedHints, simulatedFeatures]);
 
   const activeByType = (models || []).reduce((acc, model) => {
     if (model.is_active) acc[model.model_type] = model.model_name;
@@ -149,6 +230,66 @@ export default function ModuleModelPredictions() {
                 <td className="px-4 py-3">{t.status}</td>
                 <td className="px-4 py-3">{Number(t.duration_seconds || 0).toFixed(2)}s</td>
                 <td className="px-4 py-3 text-xs text-gray-500">{t.completed_at || '-'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="bg-amber-50 rounded-xl border border-amber-200 overflow-hidden mt-6">
+        <div className="px-4 py-3 border-b border-amber-200 bg-amber-100 font-semibold text-sm flex items-center justify-between">
+          <span>C) Simulated Prediction Hints (Not Accurate)</span>
+          <div className="flex items-center gap-3">
+            <label className="text-xs font-semibold text-amber-900 inline-flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={showSimulatedHints}
+                onChange={(e) => setShowSimulatedHints(e.target.checked)}
+              />
+              Show simulated hints
+            </label>
+            <span className="text-xs font-bold text-amber-800">FAKE / MODEL-ONLY</span>
+          </div>
+        </div>
+        <div className="px-4 py-3 text-xs text-amber-900 bg-amber-50 border-b border-amber-200">
+          These are intentionally synthetic low-confidence hints to show where potholes might appear. They are not confirmed detections and must be field-verified.
+        </div>
+
+        <div className="p-4 border-b border-amber-200 bg-white">
+          <div className="h-80 overflow-hidden rounded-lg border border-amber-200">
+            <GooglePotholeMap
+              geojson={predictionMapGeojson}
+              heightClassName="h-full w-full"
+              popupLinkPrefix="/admin"
+            />
+          </div>
+          <div className="mt-3 text-xs text-gray-700 flex items-center gap-4">
+            <span className="inline-flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-full bg-purple-600" /> Simulated hints</span>
+            <span className="inline-flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-full bg-red-600" /> Real critical</span>
+            <span className="inline-flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-full bg-green-600" /> Real low</span>
+          </div>
+        </div>
+
+        <table className="w-full text-sm">
+          <thead className="bg-amber-100 border-b border-amber-200">
+            <tr>
+              <th className="text-left px-4 py-3">Highway</th>
+              <th className="text-left px-4 py-3">District</th>
+              <th className="text-left px-4 py-3">Coordinates</th>
+              <th className="text-left px-4 py-3">Probability</th>
+              <th className="text-left px-4 py-3">Comment</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-amber-100">
+            {SIMULATED_PREDICTION_HINTS.map((hint) => (
+              <tr key={hint.id}>
+                <td className="px-4 py-3">{hint.highway}</td>
+                <td className="px-4 py-3">{hint.district}</td>
+                <td className="px-4 py-3 text-xs text-gray-700">
+                  {hint.latitude.toFixed(6)}, {hint.longitude.toFixed(6)}
+                </td>
+                <td className="px-4 py-3">{(hint.probability * 100).toFixed(0)}%</td>
+                <td className="px-4 py-3 text-xs text-gray-700">{hint.note}</td>
               </tr>
             ))}
           </tbody>

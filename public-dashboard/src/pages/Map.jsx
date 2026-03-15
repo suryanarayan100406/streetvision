@@ -1,89 +1,83 @@
-import { useEffect, useRef } from 'react';
-import mapboxgl from 'mapbox-gl';
+import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import useFetch from '../hooks/useFetch';
-
-const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN || '';
-const hasMapboxToken = mapboxToken && !mapboxToken.includes('PLACEHOLDER');
-
-if (hasMapboxToken) {
-  mapboxgl.accessToken = mapboxToken;
-}
+import GooglePotholeMap from '../components/GooglePotholeMap';
 
 export default function Map() {
-  const mapContainer = useRef(null);
-  const map = useRef(null);
   const { data: geojson } = useFetch('/api/public/geojson');
-
-  useEffect(() => {
-    if (!mapContainer.current || !hasMapboxToken) return;
-
-    map.current = new mapboxgl.Map({
-      container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/streets-v12',
-      center: [82.0, 21.5],
-      zoom: 7,
-    });
-
-    return () => map.current.remove();
-  }, []);
-
-  useEffect(() => {
-    if (!map.current || !geojson || !hasMapboxToken) return;
-
-    if (map.current.getSource('potholes')) {
-      map.current.getSource('potholes').setData(geojson);
-    } else {
-      map.current.addSource('potholes', { type: 'geojson', data: geojson });
-      map.current.addLayer({
-        id: 'potholes-layer',
-        type: 'circle',
-        source: 'potholes',
-        paint: {
-          'circle-radius': 6,
-          'circle-color': [
-            'match',
-            ['get', 'severity'],
-            'Low', '#22c55e',
-            'Medium', '#eab308',
-            'High', '#f97316',
-            'Critical', '#ef4444',
-            '#999',
-          ],
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#fff',
-        },
-      });
-    }
-
-    map.current.on('click', 'potholes-layer', (e) => {
-      if (!e.features?.length) return;
-      const prop = e.features[0].properties;
-      new mapboxgl.Popup()
-        .setLngLat(e.lngLat)
-        .setHTML(
-          `<strong>Pothole #${prop.id}</strong><br/>Severity: ${prop.severity}<br/>Risk: ${prop.risk_score}/100`
-        )
-        .addTo(map.current);
-    });
-  }, [geojson]);
-
-  if (!hasMapboxToken) {
-    return (
-      <div className="bg-white rounded-xl border p-6">
-        <h3 className="text-lg font-semibold mb-2">Map unavailable</h3>
-        <p className="text-sm text-gray-600">
-          Add a valid <code>VITE_MAPBOX_TOKEN</code> in environment to enable map tiles.
-        </p>
-        <p className="text-sm text-gray-500 mt-2">
-          API is still live and detections load via <code>/api/public/geojson</code>.
-        </p>
-      </div>
-    );
-  }
+  const features = geojson?.features || [];
+  const exactLocations = features.filter((feature) => {
+    const coordinates = feature.geometry?.coordinates || [];
+    return Number.isFinite(coordinates[0]) && Number.isFinite(coordinates[1]);
+  });
+  const criticalCount = features.filter((feature) => feature.properties?.severity === 'Critical').length;
+  const listGeojson = useMemo(() => ({
+    type: 'FeatureCollection',
+    features: exactLocations,
+  }), [exactLocations]);
 
   return (
-    <div className="h-[calc(100vh-8rem)] rounded-xl overflow-hidden shadow-lg border border-gray-200">
-      <div ref={mapContainer} className="h-full" />
-    </div>
+    <section className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Tracked potholes</p>
+          <p className="mt-2 text-3xl font-bold text-gray-900">{features.length}</p>
+          <p className="mt-1 text-sm text-gray-600">Every marker comes from stored pothole coordinates.</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Critical cases</p>
+          <p className="mt-2 text-3xl font-bold text-red-600">{criticalCount}</p>
+          <p className="mt-1 text-sm text-gray-600">High-priority markers remain color-coded on the map.</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Map engine</p>
+          <p className="mt-2 text-3xl font-bold text-gray-900">OpenStreetMap</p>
+          <p className="mt-1 text-sm text-gray-600">
+            Open-source map tiles are rendering exact pothole positions without API keys.
+          </p>
+        </div>
+      </div>
+
+      <div className="h-[calc(100vh-14rem)] rounded-xl overflow-hidden border border-gray-200 shadow-lg bg-white">
+        <GooglePotholeMap geojson={listGeojson} heightClassName="h-full w-full" />
+      </div>
+
+      <div className="bg-white rounded-xl border p-6">
+        <h3 className="text-lg font-semibold mb-4">Latest exact locations</h3>
+        <div className="space-y-3">
+          {exactLocations.slice(0, 12).map((feature) => {
+            const [lng, lat] = feature.geometry.coordinates;
+            return (
+              <div key={feature.properties.id} className="rounded-lg border border-gray-200 p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-semibold text-gray-900">Pothole #{feature.properties.id}</p>
+                    <p className="text-sm text-gray-600">
+                      {Number(lat).toFixed(6)}, {Number(lng).toFixed(6)}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
+                    {feature.properties.severity || 'Unknown'}
+                  </span>
+                </div>
+                <div className="mt-3 flex gap-4 text-sm font-medium">
+                  <Link to={`/pothole/${feature.properties.id}`} className="text-blue-700 hover:text-blue-900">
+                    View details
+                  </Link>
+                  <a
+                    href={`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-700 hover:text-blue-900"
+                  >
+                    Open in OpenStreetMap
+                  </a>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
   );
 }

@@ -92,6 +92,7 @@ class Settings(BaseSettings):
     # ─── Confidence thresholds ─────────────────────────────────
     AUTO_FILE_THRESHOLD: float = 0.85
     REVIEW_THRESHOLD: float = 0.65
+    AUTO_FILE_MIN_RISK_SCORE: float = 65.0
     CCTV_SSIM_SKIP: float = 0.98
 
     # ─── Escalation ───────────────────────────────────────────

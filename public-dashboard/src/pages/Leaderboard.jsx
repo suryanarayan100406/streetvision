@@ -1,9 +1,26 @@
 import useFetch from '../hooks/useFetch';
 
 export default function Leaderboard() {
-  const { data: leaderboard } = useFetch('/api/dashboard/leaderboard');
+  const { data: leaderboard, loading, error } = useFetch('/api/dashboard/leaderboard');
 
-  if (!leaderboard) return <div className="text-center py-8">Loading...</div>;
+  if (loading) return <div className="text-center py-8">Loading...</div>;
+  if (error) {
+    return (
+      <div className="text-center py-8 text-red-600">
+        Leaderboard could not be loaded. Check API host/network and try again.
+      </div>
+    );
+  }
+
+  if (!Array.isArray(leaderboard) || leaderboard.length === 0) {
+    return (
+      <div className="text-center py-8 text-gray-600">
+        No leaderboard data yet. Submit reports to generate rankings.
+      </div>
+    );
+  }
+
+  const medals = ['🥇', '🥈', '🥉'];
 
   return (
     <div className="space-y-6">
@@ -19,7 +36,7 @@ export default function Leaderboard() {
               'bg-gradient-to-br from-orange-400 to-orange-500'
             }`}
           >
-            <p className="text-4xl mb-2">{'🥇🥈🥉'[idx]}</p>
+            <p className="text-4xl mb-2">{medals[idx] || `#${idx + 1}`}</p>
             <p className="font-bold text-lg">{user.display_name || user.user_id}</p>
             <p className="text-2xl font-bold mt-2">{user.total_points} pts</p>
           </div>
@@ -37,8 +54,8 @@ export default function Leaderboard() {
             </tr>
           </thead>
           <tbody className="divide-y">
-            {leaderboard.map((user) => (
-              <tr key={user.user_id} className="hover:bg-gray-50">
+            {leaderboard.map((user, index) => (
+              <tr key={user.user_id || `${user.rank || index}`} className="hover:bg-gray-50">
                 <td className="px-4 py-3 font-bold">{user.rank}</td>
                 <td className="px-4 py-3">{user.display_name || user.user_id}</td>
                 <td className="px-4 py-3">{user.reports_count}</td>

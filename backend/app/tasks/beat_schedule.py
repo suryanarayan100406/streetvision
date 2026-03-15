@@ -1,6 +1,7 @@
 """Celery beat schedule — all 30+ periodic tasks."""
 
 from celery.schedules import crontab
+from datetime import timedelta
 
 CELERY_BEAT_SCHEDULE = {
     # ─── Satellite Ingestion ──────────────────────────────────
@@ -64,6 +65,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "app.tasks.data_ingestion_tasks.ingest_kartaview",
         "schedule": crontab(hour=9, minute=30, day_of_week="1"),
         "options": {"queue": "satellite_queue"},
+    },
+    "cctv_polling_job": {
+        "task": "app.tasks.cctv_tasks.poll_active_cctv_nodes",
+        "schedule": timedelta(seconds=30),
+        "options": {"queue": "inference_queue"},
     },
     # ─── Weather ──────────────────────────────────────────────
     "imd_weather_job": {

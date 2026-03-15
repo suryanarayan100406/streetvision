@@ -1,11 +1,38 @@
 import { useParams } from 'react-router-dom';
 import useFetch from '../hooks/useFetch';
+import GooglePotholeMap from '../components/GooglePotholeMap';
 
 export default function PotholeDetail() {
   const { id } = useParams();
   const { data: pothole } = useFetch(`/api/public/potholes/${id}`);
 
   if (!pothole) return <div className="text-center py-8">Loading...</div>;
+
+  const lat = Number(pothole.latitude);
+  const lng = Number(pothole.longitude);
+  const hasCoordinates = Number.isFinite(lat) && Number.isFinite(lng);
+  const detailGeojson = hasCoordinates
+    ? {
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            geometry: {
+              type: 'Point',
+              coordinates: [lng, lat],
+            },
+            properties: {
+              id: pothole.id,
+              severity: pothole.severity,
+              risk_score: pothole.risk_score,
+              status: pothole.status,
+              nh_number: pothole.nh_number,
+              detected_at: pothole.detected_at,
+            },
+          },
+        ],
+      }
+    : null;
 
   return (
     <div className="grid lg:grid-cols-3 gap-6">
@@ -38,7 +65,42 @@ export default function PotholeDetail() {
             <p><strong>Detected:</strong> {new Date(pothole.detected_at).toLocaleDateString()}</p>
             <p><strong>Highway:</strong> {pothole.nh_number || 'N/A'}</p>
             <p><strong>Confidence:</strong> {(Number(pothole.confidence_score || 0) * 100).toFixed(1)}%</p>
+            <p><strong>Coordinates:</strong> {hasCoordinates ? `${lat.toFixed(6)}, ${lng.toFixed(6)}` : 'N/A'}</p>
           </div>
+        </div>
+
+        <div className="bg-white rounded-xl border p-6 mt-6">
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Exact location</h3>
+              <p className="text-sm text-gray-600">Stored pothole coordinates rendered on the map.</p>
+            </div>
+            {hasCoordinates ? (
+              <a
+                href={`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm font-semibold text-blue-700 hover:text-blue-900"
+              >
+                Open in OpenStreetMap
+              </a>
+            ) : null}
+          </div>
+
+          {hasCoordinates ? (
+            <div className="h-80 overflow-hidden rounded-lg border border-gray-200">
+              <GooglePotholeMap
+                geojson={detailGeojson}
+                center={{ lat, lng }}
+                zoom={17}
+                heightClassName="h-full w-full"
+              />
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">
+              Coordinates are not available for this pothole yet.
+            </div>
+          )}
         </div>
       </div>
 

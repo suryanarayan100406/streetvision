@@ -13,6 +13,7 @@ import numpy as np
 import structlog
 
 from app.config import settings
+from app.services.model_registry import get_active_model_weights
 
 logger = structlog.get_logger(__name__)
 
@@ -44,7 +45,16 @@ async def _load_model(model_path: str | Path | None = None):
         _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info("loading_siamese_model", device=str(_device))
 
-        configured_path = Path(model_path) if model_path else DEFAULT_MODEL_PATH
+        selected_path = (
+            str(model_path)
+            if model_path
+            else await get_active_model_weights(
+                "VERIFICATION",
+                str(DEFAULT_MODEL_PATH),
+                virtual_prefixes=("torchvision:",),
+            )
+        )
+        configured_path = Path(selected_path) if not selected_path.startswith("torchvision:") else DEFAULT_MODEL_PATH
 
         class SiameseNetwork(nn.Module):
             """Twin-branch network with shared ResNet-18 encoder."""

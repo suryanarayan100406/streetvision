@@ -4,12 +4,15 @@ import { Camera } from 'expo-camera';
 import * as Location from 'expo-location';
 import { Accelerometer } from 'expo-sensors';
 import api from '../api';
+import { getApiBaseUrl } from '../api';
+import { getStoredProfile } from '../userProfileStore';
 
-const AUTO_REPORT_Z_THRESHOLD = 4.0;
-const AUTO_REPORT_MIN_SPEED_KMH = 8.0;
-const AUTO_REPORT_MIN_VARIANCE = 0.85;
-const AUTO_REPORT_COOLDOWN_MS = 20000;
+const AUTO_REPORT_Z_THRESHOLD = 1.05;
+const AUTO_REPORT_MIN_SPEED_KMH = 0.0;
+const AUTO_REPORT_MIN_VARIANCE = 0.12;
+const AUTO_REPORT_COOLDOWN_MS = 7000;
 const SENSOR_WINDOW_SIZE = 8;
+const DEMO_SEND_MIN_SPEED_KMH = 12.0;
 
 function clampMagnitude(value) {
   if (!Number.isFinite(value)) return 0;
@@ -24,12 +27,21 @@ function calculateVariance(samples) {
 }
 
 export default function ReportScreen() {
+  const backType = Camera?.Constants?.Type?.back ?? 'back';
+  const frontType = Camera?.Constants?.Type?.front ?? 'front';
   const [hasPermission, setHasPermission] = useState(null);
-  const [type, setType] = useState(Camera.Constants.Type.back);
+  const [type, setType] = useState(backType);
   const [photo, setPhoto] = useState(null);
   const [loading, setLoading] = useState(false);
   const [locationPermission, setLocationPermission] = useState(false);
+  const [cameraError, setCameraError] = useState('');
   const [autoDetectEnabled, setAutoDetectEnabled] = useState(true);
+  const [shakeNotice, setShakeNotice] = useState({
+    visible: false,
+    level: 'info',
+    message: '',
+    sending: false,
+  });
   const [motionState, setMotionState] = useState({
     speedKmh: 0,
     zAxisChange: 0,
@@ -37,16 +49,35 @@ export default function ReportScreen() {
     lastStatus: 'Waiting for motion data',
   });
   const cameraRef = useRef(null);
+  const noticeTimerRef = useRef(null);
   const recentZValuesRef = useRef([]);
   const lastLocationRef = useRef(null);
   const lastAutoSubmitRef = useRef(0);
 
+  const showShakeNotice = (level, message, sending = false, ttlMs = 2600) => {
+    if (noticeTimerRef.current) {
+      clearTimeout(noticeTimerRef.current);
+    }
+    setShakeNotice({ visible: true, level, message, sending });
+    if (ttlMs > 0) {
+      noticeTimerRef.current = setTimeout(() => {
+        setShakeNotice((prev) => ({ ...prev, visible: false, sending: false }));
+      }, ttlMs);
+    }
+  };
+
   React.useEffect(() => {
     (async () => {
-      const cameraPermission = await Camera.requestCameraPermissionsAsync();
-      const foregroundPermission = await Location.requestForegroundPermissionsAsync();
-      setHasPermission(cameraPermission.status === 'granted');
-      setLocationPermission(foregroundPermission.status === 'granted');
+      try {
+        const cameraPermission = await Camera.requestCameraPermissionsAsync();
+        const foregroundPermission = await Location.requestForegroundPermissionsAsync();
+        setHasPermission(cameraPermission.status === 'granted');
+        setLocationPermission(foregroundPermission.status === 'granted');
+      } catch {
+        setHasPermission(false);
+        setLocationPermission(false);
+        setCameraError('Camera or location permissions could not be initialized on this device.');
+      }
     })();
   }, []);
 
@@ -68,21 +99,20 @@ export default function ReportScreen() {
       const zAxisChange = clampMagnitude(Math.abs(sample.z - meanZ) * 9.81);
       const variance = clampMagnitude(calculateVariance(recentZValuesRef.current) * 9.81);
       const isMoving = currentSpeedKmh >= AUTO_REPORT_MIN_SPEED_KMH;
+      const isDemoShake = zAxisChange >= AUTO_REPORT_Z_THRESHOLD || variance >= AUTO_REPORT_MIN_VARIANCE;
 
       if (isMounted) {
         setMotionState({
           speedKmh: currentSpeedKmh,
           zAxisChange,
           variance,
-          lastStatus: isMoving
-            ? 'Monitoring for major jolts while moving'
-            : 'Waiting until the phone is in vehicle motion',
+          lastStatus: 'Demo mode active: slight shakes can trigger warning',
         });
       }
 
       const now = Date.now();
       const onCooldown = now - lastAutoSubmitRef.current < AUTO_REPORT_COOLDOWN_MS;
-      if (!isMoving || onCooldown || zAxisChange < AUTO_REPORT_Z_THRESHOLD || variance < AUTO_REPORT_MIN_VARIANCE) {
+      if (onCooldown || !isDemoShake) {
         return;
       }
 
@@ -91,18 +121,22 @@ export default function ReportScreen() {
         if (!location) return;
 
         lastAutoSubmitRef.current = now;
+        if (isMounted) {
+          showShakeNotice('warn', '⚠️ Pothole warning detected. Sending report...', true, 0);
+        }
         await submitVibrationReport({
           latitude: location.latitude,
           longitude: location.longitude,
           peakAcceleration: Math.max(zAxisChange, variance),
           durationMs: 600,
-          speedKmh: currentSpeedKmh,
+          speedKmh: Math.max(currentSpeedKmh, DEMO_SEND_MIN_SPEED_KMH),
           zAxisChange,
           movementVariance: variance,
           moving: true,
         });
 
         if (isMounted) {
+          showShakeNotice('success', '✅ Pothole warning sent to server.', false, 2400);
           setMotionState((prev) => ({
             ...prev,
             lastStatus: 'Auto-reported a strong moving z-axis spike',
@@ -110,6 +144,7 @@ export default function ReportScreen() {
         }
       } catch (error) {
         if (isMounted) {
+          showShakeNotice('error', '❌ Pothole warning send failed. Will retry on next valid shake.', false, 3000);
           setMotionState((prev) => ({
             ...prev,
             lastStatus: 'Auto-detect saw a spike but report submission failed',
@@ -139,7 +174,14 @@ export default function ReportScreen() {
 
       Accelerometer.setUpdateInterval(350);
       accelerometerSubscription = Accelerometer.addListener((sample) => {
-        evaluateAutoReport(sample).catch(() => {});
+        evaluateAutoReport(sample).catch(() => {
+          if (isMounted) {
+            setMotionState((prev) => ({
+              ...prev,
+              lastStatus: 'Auto-detection is temporarily unavailable.',
+            }));
+          }
+        });
       });
     };
 
@@ -154,6 +196,7 @@ export default function ReportScreen() {
 
     return () => {
       isMounted = false;
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
       if (locationSubscription) locationSubscription.remove();
       if (accelerometerSubscription) accelerometerSubscription.remove();
     };
@@ -177,6 +220,7 @@ export default function ReportScreen() {
     moving,
   }) => {
     const formData = new FormData();
+    const profile = await getStoredProfile();
     formData.append('latitude', String(latitude));
     formData.append('longitude', String(longitude));
     formData.append('peak_acceleration', String(peakAcceleration));
@@ -185,6 +229,10 @@ export default function ReportScreen() {
     formData.append('z_axis_change', String(zAxisChange));
     formData.append('movement_variance', String(movementVariance));
     formData.append('moving', moving ? 'true' : 'false');
+    if (profile?.user_id) {
+      formData.append('user_id', String(profile.user_id));
+      formData.append('device_id', String(profile.user_id));
+    }
 
     return api.post('/mobile/report/vibration', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -194,13 +242,27 @@ export default function ReportScreen() {
   const handleSubmit = async () => {
     setLoading(true);
     try {
+      if (!photo) {
+        Alert.alert('Error', 'Please capture a photo before submitting.');
+        return;
+      }
+      if (!locationPermission) {
+        Alert.alert('Location required', 'Allow location access to submit a visual report.');
+        return;
+      }
+
       const location = await Location.getCurrentPositionAsync({});
+      const profile = await getStoredProfile();
       const formData = new FormData();
       formData.append('image', { uri: photo, name: 'pothole.jpg', type: 'image/jpeg' });
       formData.append('latitude', String(location.coords.latitude));
       formData.append('longitude', String(location.coords.longitude));
       formData.append('severity_estimate', 'Medium');
       formData.append('description', 'Mobile visual report');
+      if (profile?.user_id) {
+        formData.append('user_id', String(profile.user_id));
+        formData.append('device_id', String(profile.user_id));
+      }
       
       await api.post('/mobile/report/visual', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -208,17 +270,30 @@ export default function ReportScreen() {
       Alert.alert('Success', 'Report submitted! 🎉');
       setPhoto(null);
     } catch (e) {
-      Alert.alert('Error', e?.response?.data?.detail || 'Failed to submit report');
+      Alert.alert('Error', e?.response?.data?.detail || 'Failed to submit report. Check API host and network connection.');
     } finally {
       setLoading(false);
     }
   };
 
   if (hasPermission === null) return <View style={styles.center}><Text>Requesting camera permission...</Text></View>;
-  if (hasPermission === false) return <View style={styles.center}><Text>No camera permission</Text></View>;
+  if (hasPermission === false) return <View style={styles.center}><Text>{cameraError || 'No camera permission'}</Text></View>;
 
   return (
     <View style={styles.container}>
+      {shakeNotice.visible && (
+        <View
+          style={[
+            styles.shakeBanner,
+            shakeNotice.level === 'warn' && styles.shakeBannerWarn,
+            shakeNotice.level === 'success' && styles.shakeBannerSuccess,
+            shakeNotice.level === 'error' && styles.shakeBannerError,
+          ]}
+        >
+          <Text style={styles.shakeBannerText}>{shakeNotice.message}</Text>
+          {shakeNotice.sending ? <ActivityIndicator size="small" color="#fff" /> : null}
+        </View>
+      )}
       <View style={styles.autoCard}>
         <View style={styles.autoCardHeader}>
           <Text style={styles.autoCardTitle}>Auto z-axis detection</Text>
@@ -226,17 +301,18 @@ export default function ReportScreen() {
             <Text style={styles.autoToggleText}>{autoDetectEnabled ? 'On' : 'Off'}</Text>
           </TouchableOpacity>
         </View>
-        <Text style={styles.autoCardText}>Large z-axis spikes auto-report only while the phone is moving fast enough.</Text>
+        <Text style={styles.autoCardText}>Demo mode: even slight shakes can trigger warning + send attempt.</Text>
         <Text style={styles.autoMetric}>Speed: {motionState.speedKmh.toFixed(1)} km/h</Text>
         <Text style={styles.autoMetric}>Z change: {motionState.zAxisChange.toFixed(2)}</Text>
         <Text style={styles.autoMetric}>Motion variance: {motionState.variance.toFixed(2)}</Text>
+        <Text style={styles.autoMetric}>API: {getApiBaseUrl()}</Text>
         <Text style={styles.autoHint}>{motionState.lastStatus}</Text>
       </View>
       {!photo ? (
         <>
           <Camera style={styles.camera} type={type} ref={cameraRef}>
             <View style={styles.cameraButtons}>
-              <TouchableOpacity onPress={() => setType(type === Camera.Constants.Type.back ? Camera.Constants.Type.front : Camera.Constants.Type.back)}>
+              <TouchableOpacity onPress={() => setType(type === backType ? frontType : backType)}>
                 <Text style={styles.buttonText}>Flip</Text>
               </TouchableOpacity>
             </View>
@@ -269,6 +345,23 @@ export default function ReportScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  shakeBanner: {
+    position: 'absolute',
+    top: 48,
+    left: 12,
+    right: 12,
+    zIndex: 20,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  shakeBannerWarn: { backgroundColor: '#b45309' },
+  shakeBannerSuccess: { backgroundColor: '#15803d' },
+  shakeBannerError: { backgroundColor: '#b91c1c' },
+  shakeBannerText: { color: '#fff', fontWeight: '700', fontSize: 12, flex: 1, marginRight: 8 },
   autoCard: { backgroundColor: '#111827', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#1f2937' },
   autoCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   autoCardTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },

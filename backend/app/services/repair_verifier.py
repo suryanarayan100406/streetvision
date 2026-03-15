@@ -86,8 +86,8 @@ async def verify_repair(
         "repair_status": ssim_status,
     }
 
-    # Siamese CNN takes precedence
-    if siamese_model_path:
+    # Siamese CNN takes precedence when an actual weight file is available.
+    if siamese_model_path and not str(siamese_model_path).startswith("torchvision:"):
         try:
             siamese_result = await verify_with_siamese(before_img, after_img, siamese_model_path)
             result["siamese_score"] = siamese_result["siamese_score"]

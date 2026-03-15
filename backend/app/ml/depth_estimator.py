@@ -13,23 +13,25 @@ import numpy as np
 import structlog
 
 from app.config import settings
+from app.services.model_registry import get_active_model_weights
 
 logger = structlog.get_logger(__name__)
 
 _model = None
 _transform = None
 _device = None
+_fallback_mode = False
 _lock = asyncio.Lock()
 
 
 async def _load_model():
     """Lazy-load MiDaS DPT_Large once."""
-    global _model, _transform, _device
-    if _model is not None:
+    global _model, _transform, _device, _fallback_mode
+    if _model is not None or _fallback_mode:
         return
 
     async with _lock:
-        if _model is not None:
+        if _model is not None or _fallback_mode:
             return
 
         import os
@@ -38,24 +40,61 @@ async def _load_model():
         _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info("loading_midas", device=str(_device))
 
+        configured_path = await get_active_model_weights(
+            "DEPTH",
+            str(settings.MIDAS_MODEL_PATH),
+            virtual_prefixes=("torch.hub:",),
+        )
+        configured_virtual_hub = str(configured_path).startswith("torch.hub:")
+        allow_remote_hub = os.getenv("MIDAS_ALLOW_REMOTE_DOWNLOAD", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+
+        # Prefer fine-tuned checkpoint if present
+        candidate_paths = []
+        if not configured_virtual_hub:
+            candidate_paths.append(Path(configured_path))
+        candidate_paths.extend(
+            [
+                Path("/models/midas_dpt_large_pothole_finetuned.pt"),
+                Path("/app/ml/midas_dpt_large_pothole_finetuned.pt"),
+            ]
+        )
+
+        loaded_custom = False
+        selected_checkpoint = None
+        for checkpoint_path in candidate_paths:
+            if not checkpoint_path.exists():
+                continue
+            selected_checkpoint = checkpoint_path
+            break
+
+        if not configured_virtual_hub and not allow_remote_hub:
+            _fallback_mode = True
+            logger.warning(
+                "midas_remote_hub_disabled_using_fast_depth_fallback",
+                configured_path=str(configured_path),
+                checkpoint_found=selected_checkpoint is not None,
+            )
+            return
+
+        if selected_checkpoint is None and not configured_virtual_hub:
+            _fallback_mode = True
+            logger.warning(
+                "midas_checkpoint_missing_using_fast_depth_fallback",
+                configured_path=str(configured_path),
+            )
+            return
+
         # Ensure hub cache directory exists before parallel workers race to create it
         hub_dir = torch.hub.get_dir()
         os.makedirs(hub_dir, exist_ok=True)
 
         _model = torch.hub.load("intel-isl/MiDaS", "DPT_Large", trust_repo=True)
 
-        # Prefer fine-tuned checkpoint if present
-        configured_path = Path(settings.MIDAS_MODEL_PATH)
-        candidate_paths = [
-            configured_path,
-            Path("/models/midas_dpt_large_pothole_finetuned.pt"),
-            Path("/app/ml/midas_dpt_large_pothole_finetuned.pt"),
-        ]
-
-        loaded_custom = False
-        for checkpoint_path in candidate_paths:
-            if not checkpoint_path.exists():
-                continue
+        for checkpoint_path in ([selected_checkpoint] if selected_checkpoint else []):
             try:
                 state_dict = torch.load(
                     checkpoint_path,
@@ -91,6 +130,38 @@ async def _load_model():
         _transform = midas_transforms.dpt_transform
 
 
+def _estimate_depth_fast(image: np.ndarray, mask: np.ndarray | None = None) -> dict:
+    import cv2
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray = gray.astype(np.float32) / 255.0
+    depth_map = 1.0 - gray
+
+    if mask is not None:
+        resized_mask = cv2.resize(mask.astype(np.uint8), (depth_map.shape[1], depth_map.shape[0]))
+        roi_depths = depth_map[resized_mask > 0]
+    else:
+        roi_depths = depth_map.flatten()
+
+    if len(roi_depths) == 0:
+        return {
+            "depth_map": depth_map,
+            "mean_depth": 0.0,
+            "max_depth": 0.0,
+            "estimated_depth_cm": 0.0,
+        }
+
+    mean_depth = float(np.mean(roi_depths))
+    max_depth = float(np.max(roi_depths))
+    estimated_cm = round(min(50.0, max_depth * 18.0), 2)
+    return {
+        "depth_map": depth_map,
+        "mean_depth": round(mean_depth, 4),
+        "max_depth": round(max_depth, 4),
+        "estimated_depth_cm": estimated_cm,
+    }
+
+
 async def estimate_depth(
     image: np.ndarray,
     mask: np.ndarray | None = None,
@@ -112,6 +183,9 @@ async def estimate_depth(
     import cv2
 
     await _load_model()
+
+    if _fallback_mode:
+        return _estimate_depth_fast(image, mask)
 
     rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 

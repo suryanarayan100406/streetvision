@@ -5,11 +5,12 @@
     "version": "1.0.0",
     "assetBundlePatterns": ["**/*"],
     "extra": {
-      "apiHost": "172.16.196.158",
+      "apiBaseUrl": "http://172.16.196.139:8000/api",
       "apiPort": "8000"
     },
     "android": {
-      "package": "com.cgpothole.mobile"
+      "package": "com.cgpothole.mobile",
+      "usesCleartextTraffic": true
     },
     "ios": {
       "bundleIdentifier": "com.cgpothole.mobile"

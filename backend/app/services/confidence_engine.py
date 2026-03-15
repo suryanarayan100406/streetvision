@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.pothole import Pothole
 from app.models.source_report import SourceReport
+from app.config import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -59,7 +60,7 @@ async def recompute_confidence(db: AsyncSession, pothole_id: int) -> Decimal:
     fused = base_conf
 
     for report in reports:
-        source = report.source
+        source = report.source_type
         if source in seen_sources:
             continue
         seen_sources.add(source)
@@ -85,11 +86,13 @@ async def recompute_confidence(db: AsyncSession, pothole_id: int) -> Decimal:
     return final_score
 
 
-def determine_action(confidence: Decimal, auto_threshold: float = 0.85, review_threshold: float = 0.65) -> str:
+def determine_action(confidence: Decimal, auto_threshold: float | None = None, review_threshold: float | None = None) -> str:
     """Determine the action based on confidence thresholds."""
+    auto_value = float(settings.AUTO_FILE_THRESHOLD if auto_threshold is None else auto_threshold)
+    review_value = float(settings.REVIEW_THRESHOLD if review_threshold is None else review_threshold)
     c = float(confidence)
-    if c >= auto_threshold:
+    if c >= auto_value:
         return "AUTO_FILE_COMPLAINT"
-    elif c >= review_threshold:
+    elif c >= review_value:
         return "FLAG_FOR_REVIEW"
     return "MONITOR"

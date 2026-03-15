@@ -14,7 +14,12 @@ export default function useFetch(url) {
     fetch(url, { signal: controller.signal })
       .then(async (r) => {
         if (!r.ok) {
-          const message = await r.text();
+          let message = '';
+          try {
+            message = await r.text();
+          } catch {
+            message = '';
+          }
           throw new Error(message || `Request failed: ${r.status}`);
         }
         return r.json();
