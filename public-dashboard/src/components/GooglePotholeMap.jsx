@@ -17,8 +17,13 @@ function severityColor(severity) {
   }
 }
 
+function roadColor(classification) {
+  return classification === 'central' ? '#2563eb' : '#16a34a';
+}
+
 export default function GooglePotholeMap({
   geojson,
+  highwayGeojson,
   center,
   zoom = 11,
   heightClassName = 'h-full',
@@ -57,7 +62,7 @@ export default function GooglePotholeMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !geojson?.features) {
+    if (!map) {
       return;
     }
 
@@ -65,12 +70,31 @@ export default function GooglePotholeMap({
       layerRef.current.remove();
     }
 
-    const validFeatures = geojson.features.filter((feature) => {
+    layerRef.current = L.layerGroup().addTo(map);
+
+    const roads = Array.isArray(highwayGeojson?.features) ? highwayGeojson.features : [];
+    const potholeFeatures = Array.isArray(geojson?.features) ? geojson.features : [];
+
+    if (roads.length) {
+      L.geoJSON(
+        {
+          type: 'FeatureCollection',
+          features: roads,
+        },
+        {
+          style: (feature) => ({
+            color: roadColor(feature?.properties?.classification),
+            weight: feature?.properties?.classification === 'central' ? 3 : 2,
+            opacity: 0.9,
+          }),
+        }
+      ).addTo(layerRef.current);
+    }
+
+    const validFeatures = potholeFeatures.filter((feature) => {
       const [lng, lat] = feature.geometry?.coordinates || [];
       return Number.isFinite(lat) && Number.isFinite(lng);
     });
-
-    layerRef.current = L.layerGroup().addTo(map);
 
     validFeatures.forEach((feature) => {
       const [lng, lat] = feature.geometry.coordinates;
@@ -97,7 +121,7 @@ export default function GooglePotholeMap({
           <div><strong>Detected:</strong> ${detectedAt}</div>
           <div style="margin-top:10px;display:flex;gap:12px;flex-wrap:wrap">
             <a href="/pothole/${props.id}" style="color:#1d4ed8;text-decoration:none;font-weight:600">View details</a>
-            <a href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}" target="_blank" rel="noreferrer" style="color:#1d4ed8;text-decoration:none;font-weight:600">Open in OpenStreetMap</a>
+            <a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" rel="noreferrer" style="color:#1d4ed8;text-decoration:none;font-weight:600">Open in Google Maps</a>
           </div>
         </div>
       `);
@@ -124,7 +148,7 @@ export default function GooglePotholeMap({
       validFeatures.map((feature) => [feature.geometry.coordinates[1], feature.geometry.coordinates[0]])
     );
     map.fitBounds(bounds, { padding: [56, 56] });
-  }, [center, geojson, zoom]);
+  }, [center, geojson, highwayGeojson, zoom]);
 
   if (loadError) {
     return (

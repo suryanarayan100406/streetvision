@@ -1,11 +1,11 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Image, Alert, TextInput, ScrollView } from 'react-native';
 import { Camera } from 'expo-camera';
 import * as Location from 'expo-location';
 import { Accelerometer } from 'expo-sensors';
 import api from '../api';
 import { getApiBaseUrl } from '../api';
-import { getStoredProfile } from '../userProfileStore';
+import { getStoredProfile, setStoredProfile } from '../userProfileStore';
 
 const AUTO_REPORT_Z_THRESHOLD = 1.05;
 const AUTO_REPORT_MIN_SPEED_KMH = 0.0;
@@ -13,6 +13,18 @@ const AUTO_REPORT_MIN_VARIANCE = 0.12;
 const AUTO_REPORT_COOLDOWN_MS = 7000;
 const SENSOR_WINDOW_SIZE = 8;
 const DEMO_SEND_MIN_SPEED_KMH = 12.0;
+const LANGUAGE_OPTIONS = [
+  { code: 'en', label: 'English' },
+  { code: 'hi', label: 'हिन्दी' },
+  { code: 'bn', label: 'বাংলা' },
+  { code: 'te', label: 'తెలుగు' },
+  { code: 'mr', label: 'मराठी' },
+  { code: 'ta', label: 'தமிழ்' },
+  { code: 'ur', label: 'اردو' },
+  { code: 'gu', label: 'ગુજરાતી' },
+  { code: 'kn', label: 'ಕನ್ನಡ' },
+  { code: 'ml', label: 'മലയാളം' },
+];
 
 function clampMagnitude(value) {
   if (!Number.isFinite(value)) return 0;
@@ -33,6 +45,8 @@ export default function ReportScreen() {
   const [type, setType] = useState(backType);
   const [photo, setPhoto] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [selectedLanguage, setSelectedLanguage] = useState('en');
+  const [descriptionText, setDescriptionText] = useState('Mobile visual report');
   const [locationPermission, setLocationPermission] = useState(false);
   const [cameraError, setCameraError] = useState('');
   const [autoDetectEnabled, setAutoDetectEnabled] = useState(true);
@@ -85,8 +99,12 @@ export default function ReportScreen() {
       try {
         const cameraPermission = await Camera.requestCameraPermissionsAsync();
         const foregroundPermission = await Location.requestForegroundPermissionsAsync();
+        const profile = await getStoredProfile();
         setHasPermission(cameraPermission.status === 'granted');
         setLocationPermission(foregroundPermission.status === 'granted');
+        if (profile?.user_language) {
+          setSelectedLanguage(String(profile.user_language));
+        }
       } catch {
         setHasPermission(false);
         setLocationPermission(false);
@@ -272,19 +290,21 @@ export default function ReportScreen() {
       formData.append('latitude', String(location.coords.latitude));
       formData.append('longitude', String(location.coords.longitude));
       formData.append('severity_estimate', 'Medium');
-      formData.append('description', 'Mobile visual report');
+      formData.append('description', descriptionText || 'Mobile visual report');
+      formData.append('language_code', selectedLanguage);
       if (profile?.user_id) {
         formData.append('user_id', String(profile.user_id));
         formData.append('device_id', String(profile.user_id));
+        await setStoredProfile({ ...profile, user_language: selectedLanguage });
       }
       
-      await api.post('/mobile/report/visual', formData, {
+      const { data } = await api.post('/mobile/report/visual', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      Alert.alert('Success', 'Report submitted! 🎉');
+      Alert.alert('Success', data?.message || 'Report submitted! 🎉');
       setPhoto(null);
     } catch (e) {
-      Alert.alert('Error', e?.response?.data?.detail || 'Failed to submit report. Check API host and network connection.');
+      Alert.alert('Error', e?.response?.data?.detail || e?.message || 'Failed to submit report. Check API host and network connection.');
     } finally {
       setLoading(false);
     }
@@ -321,6 +341,31 @@ export default function ReportScreen() {
         <Text style={styles.autoMetric}>Motion variance: {motionState.variance.toFixed(2)}</Text>
         <Text style={styles.autoMetric}>API: {getApiBaseUrl()}</Text>
         <Text style={styles.autoHint}>{motionState.lastStatus}</Text>
+      </View>
+      <View style={styles.languageCard}>
+        <Text style={styles.languageTitle}>Report language</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.languageRow}>
+          {LANGUAGE_OPTIONS.map((item) => {
+            const active = selectedLanguage === item.code;
+            return (
+              <TouchableOpacity
+                key={item.code}
+                style={[styles.languageChip, active ? styles.languageChipActive : styles.languageChipInactive]}
+                onPress={() => setSelectedLanguage(item.code)}
+              >
+                <Text style={[styles.languageChipText, active ? styles.languageChipTextActive : styles.languageChipTextInactive]}>{item.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+        <TextInput
+          value={descriptionText}
+          onChangeText={setDescriptionText}
+          placeholder="Write pothole details in selected language"
+          placeholderTextColor="#9ca3af"
+          multiline
+          style={styles.descriptionInput}
+        />
       </View>
       {!photo ? (
         <>
@@ -382,6 +427,16 @@ const styles = StyleSheet.create({
   autoCardText: { color: '#d1d5db', fontSize: 13, marginBottom: 8 },
   autoMetric: { color: '#e5e7eb', fontSize: 12, marginBottom: 2 },
   autoHint: { color: '#93c5fd', fontSize: 12, marginTop: 6 },
+  languageCard: { backgroundColor: '#0b1220', borderTopWidth: 1, borderTopColor: '#1f2937', paddingHorizontal: 16, paddingVertical: 12 },
+  languageTitle: { color: '#fff', fontSize: 14, fontWeight: '700', marginBottom: 8 },
+  languageRow: { gap: 8, paddingBottom: 8 },
+  languageChip: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1 },
+  languageChipActive: { backgroundColor: '#2563eb', borderColor: '#2563eb' },
+  languageChipInactive: { backgroundColor: '#111827', borderColor: '#374151' },
+  languageChipText: { fontSize: 12, fontWeight: '700' },
+  languageChipTextActive: { color: '#fff' },
+  languageChipTextInactive: { color: '#d1d5db' },
+  descriptionInput: { minHeight: 62, borderRadius: 10, borderWidth: 1, borderColor: '#374151', backgroundColor: '#111827', color: '#fff', paddingHorizontal: 10, paddingVertical: 8, fontSize: 13 },
   autoToggle: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
   autoToggleOn: { backgroundColor: '#2563eb' },
   autoToggleOff: { backgroundColor: '#4b5563' },

@@ -5,6 +5,7 @@ import GooglePotholeMap from '../components/GooglePotholeMap';
 export default function PotholeDetail() {
   const { id } = useParams();
   const { data: pothole } = useFetch(`/api/public/potholes/${id}`);
+  const { data: highwaysGeojson } = useFetch('/api/public/highways/geojson?road_type=all&chhattisgarh_only=true');
 
   if (!pothole) return <div className="text-center py-8">Loading...</div>;
 
@@ -77,12 +78,12 @@ export default function PotholeDetail() {
             </div>
             {hasCoordinates ? (
               <a
-                href={`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`}
+                href={`https://www.google.com/maps?q=${lat},${lng}`}
                 target="_blank"
                 rel="noreferrer"
                 className="text-sm font-semibold text-blue-700 hover:text-blue-900"
               >
-                Open in OpenStreetMap
+                Open in Google Maps
               </a>
             ) : null}
           </div>
@@ -91,6 +92,7 @@ export default function PotholeDetail() {
             <div className="h-80 overflow-hidden rounded-lg border border-gray-200">
               <GooglePotholeMap
                 geojson={detailGeojson}
+                highwayGeojson={highwaysGeojson}
                 center={{ lat, lng }}
                 zoom={17}
                 heightClassName="h-full w-full"

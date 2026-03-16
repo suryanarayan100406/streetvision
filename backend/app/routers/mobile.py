@@ -24,6 +24,7 @@ async def submit_visual_report(
     longitude: float = Form(...),
     severity_estimate: str = Form("Medium"),
     description: str = Form(""),
+    language_code: str = Form("en"),
     user_id: str = Form(None),
     device_id: str | None = Form(None),
     z_axis_change: float | None = Form(None),
@@ -31,6 +32,11 @@ async def submit_visual_report(
     db: AsyncSession = Depends(get_db),
 ):
     """Submit a visual pothole report with photo from the mobile app."""
+    from app.services.translation_service import translate_text, get_language_label
+
+    selected_language = (language_code or "en").strip().lower()
+    english_description = await translate_text(description, selected_language, "en")
+
     # Upload image to MinIO
     from app.services.minio_client import upload_bytes
 
@@ -54,7 +60,10 @@ async def submit_visual_report(
         image_url=path,
         raw_payload={
             "severity_estimate": severity_estimate,
-            "description": description,
+            "description_original": description,
+            "description_english": english_description,
+            "language_code": selected_language,
+            "language_label": get_language_label(selected_language),
             "user_id": user_id,
             "device_id": device_id,
             "z_axis_change": z_axis_change,
@@ -93,15 +102,17 @@ async def submit_visual_report(
     run_inference_on_tile.delay(path, "MOBILE_VISUAL", "")
 
     escalation = bool(consensus.get("escalation_triggered"))
+    english_message = (
+        "Report submitted successfully. Consensus escalation triggered for satellite/CCTV-drone review."
+        if escalation
+        else "Report submitted successfully. Processing will begin shortly."
+    )
+    localized_message = await translate_text(english_message, "en", selected_language)
 
     return MobileReportResponse(
         report_id=source_report.id,
         points_earned=10 if user_id else 0,
-        message=(
-            "Report submitted successfully. Consensus escalation triggered for satellite/CCTV-drone review."
-            if escalation
-            else "Report submitted successfully. Processing will begin shortly."
-        ),
+        message=localized_message,
     )
 
 

@@ -5,6 +5,7 @@ import GooglePotholeMap from '../components/GooglePotholeMap';
 
 export default function Map() {
   const { data: geojson } = useFetch('/api/public/geojson');
+  const { data: highwaysGeojson } = useFetch('/api/public/highways/geojson?road_type=all&chhattisgarh_only=true');
   const features = geojson?.features || [];
   const exactLocations = features.filter((feature) => {
     const coordinates = feature.geometry?.coordinates || [];
@@ -31,15 +32,20 @@ export default function Map() {
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Map engine</p>
-          <p className="mt-2 text-3xl font-bold text-gray-900">OpenStreetMap</p>
+          <p className="mt-2 text-3xl font-bold text-gray-900">Central + State Highways</p>
           <p className="mt-1 text-sm text-gray-600">
-            Open-source map tiles are rendering exact pothole positions without API keys.
+            Central roads are blue, state roads are green, with exact pothole positions overlaid.
           </p>
         </div>
       </div>
 
       <div className="h-[calc(100vh-14rem)] rounded-xl overflow-hidden border border-gray-200 shadow-lg bg-white">
-        <GooglePotholeMap geojson={listGeojson} heightClassName="h-full w-full" />
+        <GooglePotholeMap geojson={listGeojson} highwayGeojson={highwaysGeojson} heightClassName="h-full w-full" />
+      </div>
+
+      <div className="flex items-center gap-4 text-xs text-gray-700">
+        <span className="inline-flex items-center gap-2"><span className="inline-block h-2.5 w-5 rounded bg-blue-600" /> Central highway</span>
+        <span className="inline-flex items-center gap-2"><span className="inline-block h-2.5 w-5 rounded bg-green-600" /> State highway</span>
       </div>
 
       <div className="bg-white rounded-xl border p-6">
@@ -65,12 +71,12 @@ export default function Map() {
                     View details
                   </Link>
                   <a
-                    href={`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`}
+                    href={`https://www.google.com/maps?q=${lat},${lng}`}
                     target="_blank"
                     rel="noreferrer"
                     className="text-blue-700 hover:text-blue-900"
                   >
-                    Open in OpenStreetMap
+                    Open in Google Maps
                   </a>
                 </div>
               </div>

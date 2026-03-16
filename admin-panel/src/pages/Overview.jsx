@@ -3,11 +3,14 @@ import { useFetch } from '../hooks/useFetch';
 import { useSocket } from '../hooks/useSocket';
 import StatCard from '../components/StatCard';
 import toast from 'react-hot-toast';
+import api from '../api';
 
 export default function Overview() {
   const { data: overview, loading } = useFetch('/admin/overview/');
   const { data: health } = useFetch('/admin/overview/health');
   const [realtimeDetections, setRealtimeDetections] = useState(0);
+  const [dataset, setDataset] = useState('all');
+  const [exporting, setExporting] = useState(false);
 
   const { on } = useSocket('/admin-stream', ['detections', 'alerts']);
 
@@ -20,9 +23,56 @@ export default function Overview() {
 
   const o = overview || {};
 
+  const onExportPdf = async () => {
+    try {
+      setExporting(true);
+      const res = await api.get('/admin/export/pdf', {
+        params: { dataset, limit: 1000 },
+        responseType: 'blob',
+      });
+
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `apis-${dataset}-export.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('PDF export downloaded');
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Failed to export PDF');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">System Overview</h2>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-2xl font-bold">System Overview</h2>
+        <div className="flex items-center gap-2">
+          <select
+            value={dataset}
+            onChange={(e) => setDataset(e.target.value)}
+            className="rounded-md border px-3 py-2 text-sm"
+          >
+            <option value="all">All data</option>
+            <option value="potholes">Potholes</option>
+            <option value="complaints">Complaints</option>
+            <option value="scans">Scans</option>
+            <option value="source_reports">Source reports</option>
+          </select>
+          <button
+            type="button"
+            onClick={onExportPdf}
+            disabled={exporting}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {exporting ? 'Exporting...' : 'Export PDF'}
+          </button>
+        </div>
+      </div>
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

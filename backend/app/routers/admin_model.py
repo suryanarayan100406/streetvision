@@ -4,14 +4,132 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from celery.result import AsyncResult
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.settings import ModelRegistry
+from app.models.pothole import Pothole
+from app.models.weather import WeatherCache
 from app.tasks.celery_app import app as celery_app
 
 router = APIRouter(prefix="/api/admin/models", tags=["admin-models"])
+
+
+@router.get("/prediction-insights")
+async def prediction_insights(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return prediction factors with road-leveling priority using weather and accident signals."""
+    capped_limit = min(max(limit, 1), 200)
+
+    weather_row = (
+        await db.execute(
+            select(WeatherCache)
+            .order_by(WeatherCache.checked_at.desc().nullslast(), WeatherCache.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    weather_48h = float(getattr(weather_row, "open_meteo_rain_48h_mm", 0) or 0)
+    weather_7d = float(getattr(weather_row, "gfs_rain_7d_mm", 0) or 0)
+    warning = (getattr(weather_row, "imd_warning_level", "") or "").strip().lower()
+    rain_alert = warning in {"orange", "red"} or weather_48h >= 10 or weather_7d >= 50
+
+    potholes = (
+        await db.execute(
+            select(Pothole)
+            .order_by(Pothole.risk_score.desc().nullslast(), Pothole.id.desc())
+            .limit(capped_limit)
+        )
+    ).scalars().all()
+
+    rows = []
+    for pothole in potholes:
+        accident_count = 0
+        if pothole.latitude is not None and pothole.longitude is not None:
+            accident_count = int(
+                (
+                    await db.execute(
+                        text(
+                            """
+                            SELECT COUNT(*)
+                            FROM road_accidents
+                            WHERE geom IS NOT NULL
+                              AND ST_DWithin(
+                                geom,
+                                ST_SetSRID(ST_MakePoint(:lon, :lat), 4326),
+                                0.02
+                              )
+                            """
+                        ),
+                        {"lon": float(pothole.longitude), "lat": float(pothole.latitude)},
+                    )
+                ).scalar()
+                or 0
+            )
+
+        risk_score = float(pothole.risk_score or 0)
+        accident_weight = min(accident_count * 4.0, 30.0)
+        weather_weight = 20.0 if rain_alert or pothole.rain_flag else 0.0
+        traffic_weight = 20.0 if (pothole.aadt or 0) >= 15000 else 12.0 if (pothole.aadt or 0) >= 5000 else 6.0
+        geometry_weight = 0.0
+        if pothole.near_junction:
+            geometry_weight += 5.0
+        if pothole.on_curve or pothole.on_blind_spot:
+            geometry_weight += 5.0
+        if pothole.thermal_stress_flag:
+            geometry_weight += 4.0
+
+        road_leveling_priority = round(
+            min(100.0, (risk_score * 0.55) + accident_weight + weather_weight + (traffic_weight * 0.3) + geometry_weight),
+            2,
+        )
+
+        if road_leveling_priority >= 80:
+            leveling_action = "Immediate leveling and patch crew dispatch"
+        elif road_leveling_priority >= 60:
+            leveling_action = "Priority leveling in current cycle"
+        elif road_leveling_priority >= 40:
+            leveling_action = "Schedule preventive leveling"
+        else:
+            leveling_action = "Monitor and include in routine maintenance"
+
+        rows.append(
+            {
+                "id": pothole.id,
+                "nh_number": pothole.nh_number,
+                "district": pothole.district,
+                "severity": pothole.severity,
+                "status": pothole.status,
+                "risk_score": risk_score,
+                "road_leveling_priority": road_leveling_priority,
+                "leveling_action": leveling_action,
+                "factors": {
+                    "accident_count_2km": accident_count,
+                    "accident_weight": round(accident_weight, 2),
+                    "weather_warning": warning or "none",
+                    "weather_48h_mm": weather_48h,
+                    "weather_7d_mm": weather_7d,
+                    "weather_weight": round(weather_weight, 2),
+                    "aadt": int(pothole.aadt or 0),
+                    "traffic_weight": round(traffic_weight, 2),
+                    "geometry_weight": round(geometry_weight, 2),
+                },
+            }
+        )
+
+    return {
+        "count": len(rows),
+        "rain_alert": rain_alert,
+        "weather": {
+            "imd_warning": warning or None,
+            "open_meteo_rain_48h_mm": weather_48h,
+            "gfs_rain_7d_mm": weather_7d,
+        },
+        "rows": rows,
+    }
 
 
 @router.get("/")

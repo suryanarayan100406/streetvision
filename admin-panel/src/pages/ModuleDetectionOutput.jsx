@@ -4,45 +4,19 @@ import api from '../api';
 import toast from 'react-hot-toast';
 import GooglePotholeMap from '../components/GooglePotholeMap';
 
-const SIMULATED_DETECTION_HINTS = [
-  { id: 'det-sim-01', highway: 'NH-53', district: 'Raipur', latitude: 21.2522, longitude: 81.6314, probability: 0.41, note: 'Low-confidence possible pothole patch.' },
-  { id: 'det-sim-02', highway: 'NH-53', district: 'Raipur', latitude: 21.2287, longitude: 81.7079, probability: 0.38, note: 'Surface stress area; field check required.' },
-  { id: 'det-sim-03', highway: 'NH-53', district: 'Mahasamund', latitude: 21.1669, longitude: 81.9021, probability: 0.44, note: 'Model advisory point, not confirmed.' },
-  { id: 'det-sim-04', highway: 'NH-53', district: 'Mahasamund', latitude: 21.1243, longitude: 82.0356, probability: 0.36, note: 'Possible pothole-prone section.' },
-  { id: 'det-sim-05', highway: 'NH-53', district: 'Mahasamund', latitude: 21.1086, longitude: 82.0993, probability: 0.40, note: 'Prediction-only hint below detection threshold.' },
-];
-
 export default function ModuleDetectionOutput() {
   const { data: missions, refetch: refetchMissions } = useFetch('/admin/drones/missions?limit=20');
   const { data: pending, refetch: refetchPending } = useFetch('/admin/detections/pending?confidence_below=0.95&limit=25');
   const { data: geojson } = useFetch('/public/geojson');
-  const [showSimulatedHints, setShowSimulatedHints] = useState(true);
-
-  const simulatedFeatures = useMemo(
-    () => SIMULATED_DETECTION_HINTS.map((hint) => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [hint.longitude, hint.latitude] },
-      properties: {
-        id: hint.id,
-        severity: 'Simulated',
-        risk_score: Math.round(hint.probability * 100),
-        status: 'SIMULATED_HINT',
-        nh_number: hint.highway,
-        district: hint.district,
-        simulated: true,
-        note: hint.note,
-      },
-    })),
-    []
-  );
+  const { data: highwaysGeojson } = useFetch('/public/highways/geojson?road_type=all&chhattisgarh_only=true');
 
   const detectionMapGeojson = useMemo(() => {
     const baseFeatures = Array.isArray(geojson?.features) ? geojson.features : [];
     return {
       type: 'FeatureCollection',
-      features: showSimulatedHints ? [...baseFeatures, ...simulatedFeatures] : baseFeatures,
+      features: baseFeatures,
     };
-  }, [geojson, showSimulatedHints, simulatedFeatures]);
+  }, [geojson]);
 
   const features = geojson?.features || [];
   const exactLocations = features.filter((feature) => {
@@ -217,28 +191,22 @@ export default function ModuleDetectionOutput() {
 
       <div className="bg-white border rounded-xl p-4 mb-6">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold">C) Exact Pothole Locations (OpenStreetMap)</h3>
-          <label className="text-xs font-semibold text-gray-700 inline-flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={showSimulatedHints}
-              onChange={(e) => setShowSimulatedHints(e.target.checked)}
-            />
-            Show simulated hints
-          </label>
+          <h3 className="font-semibold">C) Exact Pothole Locations (Real Roads)</h3>
         </div>
         <p className="text-sm text-gray-500 mb-3">
-          Live markers from pipeline detections using stored latitude/longitude.
+          Live markers from stored detections over central/state highway overlays.
         </p>
         <div className="h-80 overflow-hidden rounded-lg border border-gray-200">
           <GooglePotholeMap
             geojson={detectionMapGeojson}
+            highwayGeojson={highwaysGeojson}
             heightClassName="h-full w-full"
             popupLinkPrefix="/admin"
           />
         </div>
         <div className="mt-3 text-xs text-gray-700 flex items-center gap-4">
-          <span className="inline-flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-full bg-purple-600" /> Simulated hints</span>
+          <span className="inline-flex items-center gap-2"><span className="inline-block h-2.5 w-5 rounded bg-blue-600" /> Central highways</span>
+          <span className="inline-flex items-center gap-2"><span className="inline-block h-2.5 w-5 rounded bg-green-600" /> State highways</span>
           <span className="inline-flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-full bg-red-600" /> Real critical</span>
           <span className="inline-flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-full bg-green-600" /> Real low</span>
         </div>
@@ -251,12 +219,12 @@ export default function ModuleDetectionOutput() {
                 <p className="font-semibold">Pothole #{feature.properties.id}</p>
                 <p className="text-gray-600">{Number(lat).toFixed(6)}, {Number(lng).toFixed(6)}</p>
                 <a
-                  href={`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`}
+                  href={`https://www.google.com/maps?q=${lat},${lng}`}
                   target="_blank"
                   rel="noreferrer"
                   className="text-blue-700 hover:text-blue-900 font-medium"
                 >
-                  Open in OpenStreetMap
+                  Open in Google Maps
                 </a>
               </div>
             );

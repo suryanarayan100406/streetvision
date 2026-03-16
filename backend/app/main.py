@@ -84,6 +84,7 @@ from app.routers.admin_overview import router as admin_overview_router
 from app.routers.admin_escalation import router as admin_escalation_router
 from app.routers.admin_verification import router as admin_verification_router
 from app.routers.admin_inference import router as admin_inference_router
+from app.routers.admin_export import router as admin_export_router
 from app.routers.mobile import router as mobile_router
 
 app.include_router(public_router)
@@ -102,6 +103,7 @@ app.include_router(admin_overview_router)
 app.include_router(admin_escalation_router)
 app.include_router(admin_verification_router)
 app.include_router(admin_inference_router)
+app.include_router(admin_export_router)
 app.include_router(mobile_router)
 
 # ---------------------------------------------------------------------------

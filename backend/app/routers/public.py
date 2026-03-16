@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 
 from fastapi import APIRouter, Depends, Query, UploadFile, File, Form, HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from geoalchemy2.functions import ST_AsGeoJSON, ST_DWithin, ST_MakePoint
 
@@ -20,6 +21,15 @@ from app.models.settings import GamificationPoints
 from app.schemas.pothole import PotholeOut, PotholeDetail, PotholeListParams
 
 router = APIRouter(prefix="/api/public", tags=["public"])
+
+
+def _classify_highway(highway: str | None) -> str:
+    code = (highway or "").strip().upper()
+    if code.startswith("NH"):
+        return "central"
+    if code.startswith("SH"):
+        return "state"
+    return "state"
 
 
 @router.get("/potholes", response_model=list[PotholeOut])
@@ -176,6 +186,76 @@ async def potholes_geojson(
     return {
         "type": "FeatureCollection",
         "features": features,
+    }
+
+
+@router.get("/highways/geojson")
+async def highways_geojson(
+    road_type: str = Query("all", pattern="^(all|central|state)$"),
+    chhattisgarh_only: bool = Query(True),
+    limit: int = Query(10000, ge=1, le=50000),
+    db: AsyncSession = Depends(get_db),
+):
+    """GeoJSON FeatureCollection of road segments classified into central/state highways."""
+    sql = """
+        SELECT
+            id,
+            nh_number,
+            chainage_km,
+            aadt,
+            is_curve,
+            is_blind_spot,
+            is_junction,
+            thermal_stress_zone,
+            ST_AsGeoJSON(geom) AS geometry_json
+        FROM road_segments
+        WHERE (:cg_only = FALSE)
+           OR ST_Intersects(geom, ST_MakeEnvelope(80.0, 17.0, 84.8, 24.5, 4326))
+        ORDER BY id ASC
+        LIMIT :limit_rows
+    """
+    rows = (
+        await db.execute(
+            text(sql),
+            {"cg_only": chhattisgarh_only, "limit_rows": limit},
+        )
+    ).mappings().all()
+
+    features = []
+    for row in rows:
+        classification = _classify_highway(row.get("nh_number"))
+        if road_type != "all" and classification != road_type:
+            continue
+        geometry_json = row.get("geometry_json")
+        if not geometry_json:
+            continue
+
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": json.loads(geometry_json),
+                "properties": {
+                    "id": row.get("id"),
+                    "highway": row.get("nh_number"),
+                    "classification": classification,
+                    "chainage_km": float(row.get("chainage_km")) if row.get("chainage_km") is not None else None,
+                    "aadt": int(row.get("aadt")) if row.get("aadt") is not None else None,
+                    "is_curve": bool(row.get("is_curve")) if row.get("is_curve") is not None else None,
+                    "is_blind_spot": bool(row.get("is_blind_spot")) if row.get("is_blind_spot") is not None else None,
+                    "is_junction": bool(row.get("is_junction")) if row.get("is_junction") is not None else None,
+                    "thermal_stress_zone": bool(row.get("thermal_stress_zone")) if row.get("thermal_stress_zone") is not None else None,
+                },
+            }
+        )
+
+    return {
+        "type": "FeatureCollection",
+        "features": features,
+        "meta": {
+            "road_type": road_type,
+            "chhattisgarh_only": chhattisgarh_only,
+            "count": len(features),
+        },
     }
 
 

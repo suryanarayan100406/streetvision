@@ -4,94 +4,25 @@ import api from '../api';
 import toast from 'react-hot-toast';
 import GooglePotholeMap from '../components/GooglePotholeMap';
 
-const SIMULATED_PREDICTION_HINTS = [
-  {
-    id: 'sim-nh53-01',
-    highway: 'NH-53',
-    district: 'Raipur',
-    latitude: 21.2522,
-    longitude: 81.6314,
-    probability: 0.41,
-    note: 'Possible pothole-prone patch after rain; low-confidence model hint.',
-  },
-  {
-    id: 'sim-nh53-02',
-    highway: 'NH-53',
-    district: 'Raipur',
-    latitude: 21.2287,
-    longitude: 81.7079,
-    probability: 0.38,
-    note: 'Surface undulation likely; requires field validation.',
-  },
-  {
-    id: 'sim-nh53-03',
-    highway: 'NH-53',
-    district: 'Mahasamund',
-    latitude: 21.1669,
-    longitude: 81.9021,
-    probability: 0.44,
-    note: 'Historic stress zone; model predicts possible future pothole.',
-  },
-  {
-    id: 'sim-nh53-04',
-    highway: 'NH-53',
-    district: 'Mahasamund',
-    latitude: 21.1243,
-    longitude: 82.0356,
-    probability: 0.36,
-    note: 'Possible defect area; currently below detection threshold.',
-  },
-  {
-    id: 'sim-nh53-05',
-    highway: 'NH-53',
-    district: 'Mahasamund',
-    latitude: 21.1086,
-    longitude: 82.0993,
-    probability: 0.4,
-    note: 'Model-only advisory point, not a confirmed pothole.',
-  },
-];
-
 export default function ModuleModelPredictions() {
   const { data: models, loading, error, refetch } = useFetch('/admin/models/');
   const { data: taskFeed, refetch: refetchTaskFeed } = useFetch('/admin/pipeline/task-history?task_name=run_inference_on_tile&limit=20');
   const { data: liveGeojson } = useFetch('/public/geojson');
+  const { data: insights, refetch: refetchInsights } = useFetch('/admin/models/prediction-insights?limit=60');
+  const { data: highwaysGeojson } = useFetch('/public/highways/geojson?road_type=all&chhattisgarh_only=true');
 
   const [bootstrapTaskId, setBootstrapTaskId] = useState('');
   const [bootstrapState, setBootstrapState] = useState(null);
   const [runningBootstrap, setRunningBootstrap] = useState(false);
   const [checkingBootstrap, setCheckingBootstrap] = useState(false);
-  const [showSimulatedHints, setShowSimulatedHints] = useState(true);
-
-  const simulatedFeatures = useMemo(
-    () => SIMULATED_PREDICTION_HINTS.map((hint) => ({
-      type: 'Feature',
-      geometry: {
-        type: 'Point',
-        coordinates: [hint.longitude, hint.latitude],
-      },
-      properties: {
-        id: hint.id,
-        severity: 'Simulated',
-        risk_score: Math.round(hint.probability * 100),
-        status: 'SIMULATED_HINT',
-        nh_number: hint.highway,
-        district: hint.district,
-        detected_at: null,
-        simulated: true,
-        note: hint.note,
-      },
-    })),
-    []
-  );
 
   const predictionMapGeojson = useMemo(() => {
     const liveFeatures = Array.isArray(liveGeojson?.features) ? liveGeojson.features : [];
     return {
       type: 'FeatureCollection',
-      features: showSimulatedHints ? [...liveFeatures, ...simulatedFeatures] : liveFeatures,
+      features: liveFeatures,
     };
-  }, [liveGeojson, showSimulatedHints, simulatedFeatures]);
+  }, [liveGeojson]);
 
   const activeByType = (models || []).reduce((acc, model) => {
     if (model.is_active) acc[model.model_type] = model.model_name;
@@ -149,7 +80,7 @@ export default function ModuleModelPredictions() {
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-bold">Module · Model Predictions</h2>
-        <button onClick={() => { refetch(); refetchTaskFeed(); }} className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm">Refresh</button>
+        <button onClick={() => { refetch(); refetchTaskFeed(); refetchInsights(); }} className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm">Refresh</button>
       </div>
 
       {loading && <p className="text-sm text-gray-500">Loading models...</p>}
@@ -236,60 +167,52 @@ export default function ModuleModelPredictions() {
         </table>
       </div>
 
-      <div className="bg-amber-50 rounded-xl border border-amber-200 overflow-hidden mt-6">
-        <div className="px-4 py-3 border-b border-amber-200 bg-amber-100 font-semibold text-sm flex items-center justify-between">
-          <span>C) Simulated Prediction Hints (Not Accurate)</span>
-          <div className="flex items-center gap-3">
-            <label className="text-xs font-semibold text-amber-900 inline-flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={showSimulatedHints}
-                onChange={(e) => setShowSimulatedHints(e.target.checked)}
-              />
-              Show simulated hints
-            </label>
-            <span className="text-xs font-bold text-amber-800">FAKE / MODEL-ONLY</span>
-          </div>
-        </div>
-        <div className="px-4 py-3 text-xs text-amber-900 bg-amber-50 border-b border-amber-200">
-          These are intentionally synthetic low-confidence hints to show where potholes might appear. They are not confirmed detections and must be field-verified.
-        </div>
+      <div className="bg-white rounded-xl border overflow-hidden mt-6">
+        <div className="px-4 py-3 border-b bg-gray-50 font-semibold text-sm">C) Real Prediction Map (Road-Aligned Data)</div>
 
-        <div className="p-4 border-b border-amber-200 bg-white">
-          <div className="h-80 overflow-hidden rounded-lg border border-amber-200">
+        <div className="p-4 border-b border-gray-200 bg-white">
+          <div className="h-80 overflow-hidden rounded-lg border border-gray-200">
             <GooglePotholeMap
               geojson={predictionMapGeojson}
+              highwayGeojson={highwaysGeojson}
               heightClassName="h-full w-full"
               popupLinkPrefix="/admin"
             />
           </div>
           <div className="mt-3 text-xs text-gray-700 flex items-center gap-4">
-            <span className="inline-flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-full bg-purple-600" /> Simulated hints</span>
+            <span className="inline-flex items-center gap-2"><span className="inline-block h-2.5 w-5 rounded bg-blue-600" /> Central highways</span>
+            <span className="inline-flex items-center gap-2"><span className="inline-block h-2.5 w-5 rounded bg-green-600" /> State highways</span>
             <span className="inline-flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-full bg-red-600" /> Real critical</span>
             <span className="inline-flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-full bg-green-600" /> Real low</span>
           </div>
         </div>
+      </div>
 
+      <div className="bg-white rounded-xl border overflow-hidden mt-6">
+        <div className="px-4 py-3 border-b bg-gray-50 font-semibold text-sm">D) Road Leveling Priority (Weather + Accident + NHAI Context)</div>
+        <div className="px-4 py-2 text-xs text-gray-600 border-b bg-gray-50">
+          Latest weather: IMD {insights?.weather?.imd_warning || 'none'} · 48h rain {Number(insights?.weather?.open_meteo_rain_48h_mm || 0).toFixed(1)} mm · 7d rain {Number(insights?.weather?.gfs_rain_7d_mm || 0).toFixed(1)} mm
+        </div>
         <table className="w-full text-sm">
-          <thead className="bg-amber-100 border-b border-amber-200">
+          <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="text-left px-4 py-3">Highway</th>
-              <th className="text-left px-4 py-3">District</th>
-              <th className="text-left px-4 py-3">Coordinates</th>
-              <th className="text-left px-4 py-3">Probability</th>
-              <th className="text-left px-4 py-3">Comment</th>
+              <th className="text-left px-4 py-3">Pothole</th>
+              <th className="text-left px-4 py-3">NH</th>
+              <th className="text-left px-4 py-3">Risk</th>
+              <th className="text-left px-4 py-3">Leveling Priority</th>
+              <th className="text-left px-4 py-3">Accidents (2km)</th>
+              <th className="text-left px-4 py-3">Action</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-amber-100">
-            {SIMULATED_PREDICTION_HINTS.map((hint) => (
-              <tr key={hint.id}>
-                <td className="px-4 py-3">{hint.highway}</td>
-                <td className="px-4 py-3">{hint.district}</td>
-                <td className="px-4 py-3 text-xs text-gray-700">
-                  {hint.latitude.toFixed(6)}, {hint.longitude.toFixed(6)}
-                </td>
-                <td className="px-4 py-3">{(hint.probability * 100).toFixed(0)}%</td>
-                <td className="px-4 py-3 text-xs text-gray-700">{hint.note}</td>
+          <tbody className="divide-y">
+            {(insights?.rows || []).slice(0, 20).map((row) => (
+              <tr key={row.id}>
+                <td className="px-4 py-3">#{row.id}</td>
+                <td className="px-4 py-3">{row.nh_number || '-'}</td>
+                <td className="px-4 py-3">{Number(row.risk_score || 0).toFixed(1)}</td>
+                <td className="px-4 py-3 font-semibold text-indigo-700">{Number(row.road_leveling_priority || 0).toFixed(1)}</td>
+                <td className="px-4 py-3">{row.factors?.accident_count_2km ?? 0}</td>
+                <td className="px-4 py-3 text-xs text-gray-700">{row.leveling_action}</td>
               </tr>
             ))}
           </tbody>
